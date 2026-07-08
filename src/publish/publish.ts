@@ -89,16 +89,30 @@ export const DEFAULT_HASH_PROPERTY_KEY = 'confluence-md-sync-content-hash';
 
 export function computeContentHash(storage: string): string {
   // Перед хешированием вычищаем query (?version=N&modificationDate=…) из
-  // attachment download-URL'ов. Иначе любой ребамп аттача (новая версия
-  // от не-детерминированной генерации картинок → новый SHA → новый
-  // version N в URL) ломал бы hash страницы, хотя тело логически
-  // не изменилось — Confluence сам отдаст последнюю версию аттача по
-  // base-URL без query.
+  // attachment download-URL'ов — защита для storage, писанного схемой 1
+  // (см. HASH_SCHEME): там в body лежали URL с пином версии. Начиная со
+  // схемы 2 в body подставляются канонические URL без query, и replace —
+  // no-op.
   const canonical = storage.replace(
     /(\/download\/attachments\/[^"?\s]+)\?[^"\s]*/g,
     '$1',
   );
   return createHash('sha256').update(canonical, 'utf-8').digest('hex');
+}
+
+// Схема записи download-URL в body. Схема 1 подставляла URL из
+// _links.download как есть — с ?version=N&modificationDate=…; при ребампе
+// аттача без изменения текста страница оставалась UNCHANGED и продолжала
+// отдавать старую, пиненную версию картинки. Схема 2 подставляет
+// канонический URL без query — Confluence по нему отдаёт последнюю версию
+// аттача, и обновление диаграммы видно без переписывания body. Property со
+// схемой ≠ текущей (в т.ч. без поля scheme) считается устаревшей — страница
+// один раз переписывается каноническими URL.
+const HASH_SCHEME = 2;
+
+/** Канонический download-URL аттача: без query (?version=N&…). */
+function canonicalDownloadUrl(url: string): string {
+  return url.split('?')[0];
 }
 
 async function resolvePage(
@@ -203,9 +217,12 @@ export async function publishPage(
     for (const p of images) urls.images.set(basename(p), `dry-run://img/${basename(p)}`);
     for (const p of files) urls.files.set(basename(p), `dry-run://file/${basename(p)}`);
   } else {
+    // В body уходит канонический URL без query (см. HASH_SCHEME) — страница
+    // всегда отдаёт последнюю версию аттача. Полный URL с версией остаётся
+    // в результате для caller'а.
     for (const p of images) {
       const r = await attachmentSvc.ensure(pageId, p);
-      urls.images.set(r.filename, r.downloadUrl);
+      urls.images.set(r.filename, canonicalDownloadUrl(r.downloadUrl));
       attachments.push({ filename: r.filename, id: r.id, reused: r.reused, url: r.downloadUrl });
       console.log(
         `[attachment] ${r.filename}: ${r.reused ? 'reused' : 'uploaded'} (id=${r.id})`,
@@ -213,7 +230,7 @@ export async function publishPage(
     }
     for (const p of files) {
       const r = await attachmentSvc.ensure(pageId, p);
-      urls.files.set(r.filename, r.downloadUrl);
+      urls.files.set(r.filename, canonicalDownloadUrl(r.downloadUrl));
       attachments.push({ filename: r.filename, id: r.id, reused: r.reused, url: r.downloadUrl });
       console.log(
         `[attachment] ${r.filename}: ${r.reused ? 'reused' : 'uploaded'} (id=${r.id})`,
@@ -247,9 +264,16 @@ export async function publishPage(
     client.getContentProperty(pageId, hashKey),
   ]);
   const title = opts.title ?? existing.title;
-  const existingHash =
+  // Property, писанная другой схемой (или до появления scheme), не считается
+  // совпадением: body мог быть записан с пином версий аттачей — его нужно
+  // один раз переписать каноническими URL.
+  const propValue =
     hashProp && typeof hashProp.value === 'object' && hashProp.value !== null
-      ? ((hashProp.value as { hash?: unknown }).hash as string | undefined) ?? null
+      ? (hashProp.value as { hash?: unknown; scheme?: unknown })
+      : null;
+  const existingHash =
+    propValue && propValue.scheme === HASH_SCHEME
+      ? ((propValue.hash as string | undefined) ?? null)
       : null;
 
   if (existingHash === newHash && title === existing.title) {
@@ -274,7 +298,7 @@ export async function publishPage(
   await client.setContentProperty(
     pageId,
     hashKey,
-    { hash: newHash },
+    { hash: newHash, scheme: HASH_SCHEME },
     hashProp ? hashProp.version : null,
   );
 
