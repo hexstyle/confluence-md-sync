@@ -1,9 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { ConfluenceClient } from '../client/client.js';
 import type { ConfluenceConfig } from '../client/config.js';
 import { AttachmentService } from '../attachments/attachment.js';
-import { renderToStorage, type AttachmentUrls } from '../markdown/render.js';
+import { bpmnOutputName, convertBpmn, isBpmnFile, type BpmnConversion } from '../bpmn/convert.js';
+import { renameImagePlaceholders, renderToStorage, type AttachmentUrls } from '../markdown/render.js';
 import { validateMarkdown } from '../markdown/validate.js';
 import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
@@ -47,6 +50,12 @@ export interface PublishPageOptions {
   versionMessage?: string;
   /** Свой реестр макросов (default: встроенные core + table-filter). */
   registry?: MacroRegistry;
+  /**
+   * Каталог для PNG, сгенерированных из `*.bpmn` в images[].
+   * Default: временный каталог на каждый запуск — дедуп аттачей всё равно
+   * идёт по SHA-256 исходного BPMN через sidecar, лишних версий не будет.
+   */
+  bpmnOutDir?: string;
   /**
    * Ключ content property для хранения content-hash.
    * Default: 'confluence-md-sync-content-hash'.
@@ -132,11 +141,31 @@ export async function publishPage(
   } else {
     throw new Error('publishPage: either markdownPath or markdown must be provided');
   }
-  const images = opts.images ?? [];
+  let images = opts.images ?? [];
   const files = opts.files ?? [];
   const tables = opts.tables ?? [];
   const registry = opts.registry ?? defaultMacroRegistry;
   const hashKey = opts.hashPropertyKey ?? DEFAULT_HASH_PROPERTY_KEY;
+
+  // 0. BPMN из коробки: *.bpmn в images[] конвертируются в PNG, а
+  //    {{img:p1.bpmn}} в markdown подменяется на {{img:p1.png}} ДО валидации.
+  //    Сама конвертация (puppeteer) — после валидации, чтобы падать быстро.
+  const bpmnConversions: BpmnConversion[] = [];
+  const bpmnInputs = images.filter(isBpmnFile);
+  if (bpmnInputs.length > 0) {
+    const outDir =
+      opts.bpmnOutDir ?? mkdtempSync(join(tmpdir(), 'confluence-md-sync-bpmn-'));
+    const renames = new Map<string, string>();
+    const outputByInput = new Map<string, string>();
+    for (const input of bpmnInputs) {
+      const output = join(outDir, bpmnOutputName(input));
+      bpmnConversions.push({ input, output });
+      outputByInput.set(input, output);
+      renames.set(basename(input), basename(output));
+    }
+    images = images.map((p) => outputByInput.get(p) ?? p);
+    markdown = renameImagePlaceholders(markdown, renames);
+  }
 
   validateMarkdown({
     markdown,
@@ -152,6 +181,12 @@ export async function publishPage(
     markdown = markdown.replace(new RegExp(`\\{\\{table:${escapeRegex(table.name)}\\}\\}`, 'g'), () => tableMarkdown);
   }
 
+  // Конвертация диаграмм — до аплоада; в dry-run пропускается (аттачи всё
+  // равно не загружаются, URL подставляются фиктивные).
+  if (bpmnConversions.length > 0 && !opts.dryRun) {
+    await convertBpmn(bpmnConversions);
+  }
+
   const client = new ConfluenceClient(cfg);
   const attachmentSvc = new AttachmentService(client);
 
@@ -165,8 +200,8 @@ export async function publishPage(
   if (opts.dryRun) {
     // В dry-run не трогаем Confluence — подставляем фиктивные URL, чтобы
     // рендер и валидация плейсхолдеров отработали полностью.
-    for (const p of images) urls.images.set(basenameOf(p), `dry-run://img/${basenameOf(p)}`);
-    for (const p of files) urls.files.set(basenameOf(p), `dry-run://file/${basenameOf(p)}`);
+    for (const p of images) urls.images.set(basename(p), `dry-run://img/${basename(p)}`);
+    for (const p of files) urls.files.set(basename(p), `dry-run://file/${basename(p)}`);
   } else {
     for (const p of images) {
       const r = await attachmentSvc.ensure(pageId, p);
@@ -250,11 +285,6 @@ export async function publishPage(
   );
 
   return { pageId, title, version: nextVersion, attachments, updated: true, created, storage };
-}
-
-function basenameOf(p: string): string {
-  const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-  return idx === -1 ? p : p.slice(idx + 1);
 }
 
 function escapeRegex(s: string): string {

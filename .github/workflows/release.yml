@@ -18,6 +18,9 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+
 jobs:
   publish:
     runs-on: ubuntu-latest

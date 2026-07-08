@@ -42,6 +42,19 @@ function escapeXmlAttr(s: string): string {
   });
 }
 
+/**
+ * Переименовывает `{{img:...}}`-плейсхолдеры по карте старое→новое имя.
+ * Используется BPMN-конвейером: автор пишет `{{img:p1.bpmn}}`, публикация
+ * подменяет на `{{img:p1.png}}` после конвертации диаграммы.
+ */
+export function renameImagePlaceholders(markdown: string, renames: Map<string, string>): string {
+  if (renames.size === 0) return markdown;
+  return markdown.replace(/\{\{img:([^}]+)\}\}/g, (full, rawName: string) => {
+    const renamed = renames.get(rawName.trim());
+    return renamed ? `{{img:${renamed}}}` : full;
+  });
+}
+
 export interface AttachmentUrls {
   /** filename → абсолютный URL аттача, полученный из Confluence после аплоада. */
   images: Map<string, string>;

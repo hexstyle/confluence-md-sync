@@ -22,6 +22,7 @@ export { Markdown } from './markdown/markdown.js';
 export {
   renderToStorage,
   extractPlaceholders,
+  renameImagePlaceholders,
   MissingAttachmentUrlError,
   PLACEHOLDER_RE,
   type AttachmentUrls,
@@ -31,6 +32,18 @@ export { validateMarkdown, MarkdownValidationError, type ValidateOptions } from 
 
 // Macros (pluggable)
 export * from './macros/index.js';
+
+// BPMN (optional peer dep 'bpmn-to-image' is loaded lazily on use)
+export {
+  convertBpmn,
+  convertBpmnFolder,
+  isBpmnFile,
+  bpmnOutputName,
+  BPMN_FILE_RE,
+  type BpmnConversion,
+  type BpmnImageFormat,
+  type ConvertBpmnFolderOptions,
+} from './bpmn/convert.js';
 
 // Attachments
 export { fileSha256, HASH_TAG_PREFIX } from './attachments/hash.js';

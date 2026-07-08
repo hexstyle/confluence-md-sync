@@ -1,6 +1,6 @@
 {
   "name": "confluence-md-sync",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Publish Markdown to Confluence (Data Center & Cloud): idempotent page sync, attachment dedup, tables and a pluggable macro system",
   "keywords": [
     "confluence",
@@ -63,7 +63,20 @@
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.14.0",
+    "bpmn-to-image": "^0.7.0",
+    "puppeteer": "^24.43.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "bpmn-to-image": ">=0.7.0"
+  },
+  "peerDependenciesMeta": {
+    "bpmn-to-image": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "puppeteer": "^24.15.0"
   }
 }

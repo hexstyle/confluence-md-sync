@@ -95,6 +95,49 @@ const { storage } = await publishPage({ pageId, markdownPath, dryRun: true }, cf
 await publishPage({ pageId, markdown: '# Generated\n\ntext' }, cfg);
 ```
 
+## BPMN diagrams out of the box
+
+Pass a `.bpmn` file as an image — it is rendered to PNG at publish time
+(headless Chromium via [bpmn-to-image](https://npmjs.com/package/bpmn-to-image),
+an optional peer dependency):
+
+```bash
+npm install -D bpmn-to-image
+```
+
+> bpmn-to-image pins puppeteer 21, whose bundled Chromium fails to launch on
+> recent OSes ("socket hang up"). Force a current puppeteer in your
+> `package.json`:
+>
+> ```json
+> "overrides": { "puppeteer": "^24.0.0" }
+> ```
+
+```markdown
+Процесс выпуска релиза:
+
+{{img:release-flow.bpmn}}
+```
+
+```ts
+await publishPage({
+  pageId: '123456789',
+  markdownPath: 'docs/process.md',
+  images: ['docs/release-flow.bpmn'],   // converted to release-flow.png automatically
+  bpmnOutDir: 'build',                  // optional; default: temp dir per run
+}, cfg);
+```
+
+Chromium PNG output is not byte-stable between runs, so dedup is pinned to
+the SHA-256 of the *source* `.bpmn` via a `.src-sha256` sidecar — unchanged
+diagrams never create new attachment versions. Batch pre-conversion is also
+available:
+
+```ts
+import { convertBpmnFolder } from 'confluence-md-sync';
+await convertBpmnFolder({ srcDir: 'docs/diagrams', outDir: 'build' });
+```
+
 ## Read pages and tables
 
 ```ts

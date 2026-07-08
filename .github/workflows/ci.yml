@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # bpmn-to-image/puppeteer are dev-only; the BPMN e2e test is gated by
+  # BPMN_E2E and does not run in CI — skip the Chromium download entirely.
+  PUPPETEER_SKIP_DOWNLOAD: '1'
+
 jobs:
   test:
     runs-on: ubuntu-latest
