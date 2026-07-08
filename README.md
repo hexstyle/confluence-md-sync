@@ -99,19 +99,29 @@ await publishPage({ pageId, markdown: '# Generated\n\ntext' }, cfg);
 
 Pass a `.bpmn` file as an image — it is rendered to PNG at publish time
 (headless Chromium via [bpmn-to-image](https://npmjs.com/package/bpmn-to-image),
-an optional peer dependency):
+an optional peer dependency).
+
+Setup — install the converter **and** force a current puppeteer:
 
 ```bash
-npm install -D bpmn-to-image
+npm install -D bpmn-to-image puppeteer
 ```
 
-> bpmn-to-image pins puppeteer 21, whose bundled Chromium fails to launch on
-> recent OSes ("socket hang up"). Force a current puppeteer in your
-> `package.json`:
->
-> ```json
-> "overrides": { "puppeteer": "^24.0.0" }
-> ```
+```jsonc
+// package.json — required: bpmn-to-image pins puppeteer 21, whose bundled
+// Chromium fails to launch on recent OSes ("socket hang up"). The override
+// must reference the direct dependency ("$puppeteer"), otherwise `npm ci`
+// fails with "Override for puppeteer conflicts with direct dependency".
+{
+  "devDependencies": {
+    "bpmn-to-image": "^0.7.0",
+    "puppeteer": "^24.0.0"
+  },
+  "overrides": {
+    "puppeteer": "$puppeteer"
+  }
+}
+```
 
 ```markdown
 Процесс выпуска релиза:
