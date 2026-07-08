@@ -25,8 +25,10 @@ Options:
   --space <key>         Space key (with --title, when page ID is unknown)
   --title <title>       Page title (rename, or lookup/create key with --space)
   --parent-id <id>      Parent page for page creation
-  --image <path>        Attach an image (repeatable), referenced as {{img:name.png}}
-  --file <path>         Attach a file (repeatable), referenced as {{file:name.csv}}
+  --image <src>         Attach an image (repeatable), referenced as {{img:name.png}}
+  --file <src>          Attach a file (repeatable), referenced as {{file:name.csv}}
+                        <src> is a relative/absolute path or an http(s) URL;
+                        URLs on the Confluence host are fetched with your token
   --label <name>        Ensure label on the page (repeatable)
   --message <text>      Page version comment
   --no-create           Fail instead of creating a missing page

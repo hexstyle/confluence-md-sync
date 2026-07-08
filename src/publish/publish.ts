@@ -6,6 +6,7 @@ import { ConfluenceClient } from '../client/client.js';
 import type { ConfluenceConfig } from '../client/config.js';
 import { AttachmentService } from '../attachments/attachment.js';
 import { bpmnOutputName, convertBpmn, isBpmnFile, type BpmnConversion } from '../bpmn/convert.js';
+import { downloadToFile, isHttpUrl, remoteFilename } from './remote.js';
 import { renameImagePlaceholders, renderToStorage, type AttachmentUrls } from '../markdown/render.js';
 import { validateMarkdown } from '../markdown/validate.js';
 import { processMacros } from '../macros/registry.js';
@@ -31,7 +32,13 @@ export interface PublishPageOptions {
   markdownPath?: string;
   /** Готовый markdown-контент (вместо markdownPath). */
   markdown?: Markdown | string;
+  /**
+   * Картинки для страницы: относительный или абсолютный путь на диске либо
+   * http(s)-URL (файл скачивается при публикации; для URL с того же
+   * Confluence используется токен из конфига). `*.bpmn` конвертируются в PNG.
+   */
   images?: string[];
+  /** Файлы-аттачи; те же виды источников, что и images. */
   files?: string[];
   tables?: TableData[];
   /**
@@ -56,6 +63,11 @@ export interface PublishPageOptions {
    * идёт по SHA-256 исходного BPMN через sidecar, лишних версий не будет.
    */
   bpmnOutDir?: string;
+  /**
+   * Каталог для файлов, скачанных по http(s)-URL из images[]/files[].
+   * Default: временный каталог на каждый запуск.
+   */
+  downloadDir?: string;
   /**
    * Ключ content property для хранения content-hash.
    * Default: 'confluence-md-sync-content-hash'.
@@ -156,12 +168,46 @@ export async function publishPage(
     throw new Error('publishPage: either markdownPath or markdown must be provided');
   }
   let images = opts.images ?? [];
-  const files = opts.files ?? [];
+  let files = opts.files ?? [];
   const tables = opts.tables ?? [];
   const registry = opts.registry ?? defaultMacroRegistry;
   const hashKey = opts.hashPropertyKey ?? DEFAULT_HASH_PROPERTY_KEY;
 
-  // 0. BPMN из коробки: *.bpmn в images[] конвертируются в PNG, а
+  // 0a. Удалённые источники: http(s)://-элементы в images[]/files[]
+  //     заменяются на локальный путь в downloadDir с именем из URL — дальше
+  //     конвейер (валидация, BPMN, аплоад) работает с обычными путями.
+  //     Скачивание — после валидации (fail fast, до любого сетевого I/O).
+  const remoteDownloads: Array<{ url: string; dest: string }> = [];
+  if ([...images, ...files].some(isHttpUrl)) {
+    const dlDir =
+      opts.downloadDir ?? mkdtempSync(join(tmpdir(), 'confluence-md-sync-dl-'));
+    const toLocal = (spec: string): string => {
+      if (!isHttpUrl(spec)) return spec;
+      const dest = join(dlDir, remoteFilename(spec));
+      remoteDownloads.push({ url: spec, dest });
+      return dest;
+    };
+    images = images.map(toLocal);
+    files = files.map(toLocal);
+  }
+
+  // Плейсхолдеры и dedup-карты ключуются по basename — одинаковые имена из
+  // разных источников молча перетёрли бы друг друга. С URL-источниками это
+  // легко словить случайно, поэтому проверяем явно.
+  for (const list of [images, files]) {
+    const byName = new Map<string, string>();
+    for (const p of list) {
+      const prev = byName.get(basename(p));
+      if (prev !== undefined && prev !== p) {
+        throw new Error(
+          `publishPage: duplicate attachment filename '${basename(p)}' from different sources: '${prev}' and '${p}'`,
+        );
+      }
+      byName.set(basename(p), p);
+    }
+  }
+
+  // 0b. BPMN из коробки: *.bpmn в images[] конвертируются в PNG, а
   //    {{img:p1.bpmn}} в markdown подменяется на {{img:p1.png}} ДО валидации.
   //    Сама конвертация (puppeteer) — после валидации, чтобы падать быстро.
   const bpmnConversions: BpmnConversion[] = [];
@@ -193,6 +239,15 @@ export async function publishPage(
   for (const table of tables) {
     const tableMarkdown = table.markdown instanceof Markdown ? table.markdown.toString() : table.markdown;
     markdown = markdown.replace(new RegExp(`\\{\\{table:${escapeRegex(table.name)}\\}\\}`, 'g'), () => tableMarkdown);
+  }
+
+  // Скачивание удалённых источников — после валидации, до конвертации
+  // (скачанный .bpmn нужен convertBpmn). В dry-run пропускается.
+  if (remoteDownloads.length > 0 && !opts.dryRun) {
+    for (const { url, dest } of remoteDownloads) {
+      await downloadToFile(url, dest, cfg);
+      console.log(`[download] ${url} → ${basename(dest)}`);
+    }
   }
 
   // Конвертация диаграмм — до аплоада; в dry-run пропускается (аттачи всё

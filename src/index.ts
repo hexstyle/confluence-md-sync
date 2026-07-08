@@ -81,6 +81,13 @@ export {
   type TableData,
 } from './publish/publish.js';
 export {
+  isHttpUrl,
+  remoteFilename,
+  isSameConfluenceOrigin,
+  remoteRequestHeaders,
+  downloadToFile,
+} from './publish/remote.js';
+export {
   runPublish,
   type Here,
   type Build,

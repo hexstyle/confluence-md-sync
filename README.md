@@ -24,6 +24,9 @@ npm install confluence-md-sync
   up front; Confluence is never touched on a broken input.
 - **Pluggable macros** — built-in `core` + `table-filter` plugins, extend
   with your own in a few lines.
+- **Flexible sources** — images/files accept relative paths, absolute paths
+  or `http(s)` URLs; URLs on your Confluence host are fetched with the
+  configured token.
 
 ## Configuration
 
@@ -97,11 +100,23 @@ const { storage } = await publishPage({ pageId, markdownPath, dryRun: true }, cf
 
 // Inline content instead of a file
 await publishPage({ pageId, markdown: '# Generated\n\ntext' }, cfg);
+
+// Remote sources — downloaded at publish time; the filename for {{img:...}}
+// comes from the URL path. URLs on the configured Confluence host are
+// fetched with your token, so you can pull attachments from other pages.
+await publishPage({
+  pageId,
+  markdownPath,
+  images: ['https://confluence.example.com/download/attachments/999/flow.bpmn'],
+  files: ['https://files.example.com/exports/выгрузка.csv'],
+  downloadDir: 'build',   // optional; default: temp dir per run
+}, cfg);
 ```
 
 ## BPMN diagrams out of the box
 
-Pass a `.bpmn` file as an image — it is rendered to PNG at publish time
+Pass a `.bpmn` file as an image (a path or an `http(s)` URL) — it is
+rendered to PNG at publish time
 (headless Chromium via [bpmn-to-image](https://npmjs.com/package/bpmn-to-image),
 an optional peer dependency).
 
