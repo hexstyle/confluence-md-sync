@@ -1,0 +1,262 @@
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { ConfluenceClient } from '../client/client.js';
+import type { ConfluenceConfig } from '../client/config.js';
+import { AttachmentService } from '../attachments/attachment.js';
+import { renderToStorage, type AttachmentUrls } from '../markdown/render.js';
+import { validateMarkdown } from '../markdown/validate.js';
+import { processMacros } from '../macros/registry.js';
+import type { MacroRegistry } from '../macros/registry.js';
+import { defaultMacroRegistry } from '../macros/index.js';
+import { Markdown } from '../markdown/markdown.js';
+
+export interface TableData {
+  name: string;
+  markdown: Markdown | string;
+}
+
+export interface PublishPageOptions {
+  /** Известный ID страницы. Альтернатива — spaceKey + title. */
+  pageId?: string;
+  /**
+   * Space key для поиска/создания страницы по title, когда pageId неизвестен.
+   * Если страницы с таким title в space нет и createIfMissing !== false,
+   * она будет создана (опционально под parentPageId).
+   */
+  spaceKey?: string;
+  /** Путь к markdown-файлу. Альтернатива — `markdown` со строкой/объектом. */
+  markdownPath?: string;
+  /** Готовый markdown-контент (вместо markdownPath). */
+  markdown?: Markdown | string;
+  images?: string[];
+  files?: string[];
+  tables?: TableData[];
+  /**
+   * Заголовок страницы. Для существующей страницы — переименование
+   * (по умолчанию сохраняется текущий); для поиска/создания по spaceKey —
+   * обязательный ключ поиска.
+   */
+  title?: string;
+  /** Родитель для создаваемой страницы (только вместе со spaceKey). */
+  parentPageId?: string;
+  /** Создавать ли страницу, если по spaceKey+title не нашлась. Default: true. */
+  createIfMissing?: boolean;
+  /** Лейблы, которые нужно гарантировать на странице. */
+  labels?: string[];
+  /** Комментарий к версии страницы. */
+  versionMessage?: string;
+  /** Свой реестр макросов (default: встроенные core + table-filter). */
+  registry?: MacroRegistry;
+  /**
+   * Ключ content property для хранения content-hash.
+   * Default: 'confluence-md-sync-content-hash'.
+   */
+  hashPropertyKey?: string;
+  /** Рендер и валидация без записи в Confluence. */
+  dryRun?: boolean;
+}
+
+export interface PublishPageResult {
+  pageId: string;
+  title: string;
+  version: number;
+  attachments: Array<{ filename: string; id: string; reused: boolean; url: string }>;
+  /** false если контент совпал по hash и updatePage не вызывался. */
+  updated: boolean;
+  /** true если страница была создана в этом запуске. */
+  created: boolean;
+  /** Итоговый storage-контент (полезно в dryRun). */
+  storage: string;
+}
+
+// Content property с SHA-256 от рендеренного storage. Хранится отдельно
+// от body через /rest/api/content/{id}/property/{key}, поэтому:
+//  - не попадает в HTML страницы (пользователь не видит);
+//  - переживает любую нормализацию storage Confluence (HTML-comment не
+//    переживал — был первый подход, не сработал).
+// При повторной публикации того же контента hash совпадёт → updatePage
+// не вызываем → версия страницы не растёт, история не пухнет.
+export const DEFAULT_HASH_PROPERTY_KEY = 'confluence-md-sync-content-hash';
+
+export function computeContentHash(storage: string): string {
+  // Перед хешированием вычищаем query (?version=N&modificationDate=…) из
+  // attachment download-URL'ов. Иначе любой ребамп аттача (новая версия
+  // от не-детерминированной генерации картинок → новый SHA → новый
+  // version N в URL) ломал бы hash страницы, хотя тело логически
+  // не изменилось — Confluence сам отдаст последнюю версию аттача по
+  // base-URL без query.
+  const canonical = storage.replace(
+    /(\/download\/attachments\/[^"?\s]+)\?[^"\s]*/g,
+    '$1',
+  );
+  return createHash('sha256').update(canonical, 'utf-8').digest('hex');
+}
+
+async function resolvePage(
+  client: ConfluenceClient,
+  opts: PublishPageOptions,
+): Promise<{ pageId: string; created: boolean }> {
+  if (opts.pageId) return { pageId: opts.pageId, created: false };
+  if (!opts.spaceKey || !opts.title) {
+    throw new Error('publishPage: either pageId or spaceKey + title must be provided');
+  }
+  const existing = await client.getPageByTitle(opts.spaceKey, opts.title);
+  if (existing) return { pageId: existing.id, created: false };
+  if (opts.createIfMissing === false) {
+    throw new Error(
+      `publishPage: page '${opts.title}' not found in space '${opts.spaceKey}' and createIfMissing is false`,
+    );
+  }
+  if (opts.dryRun) {
+    console.log(`[publish] dry-run: would create page '${opts.title}' in space '${opts.spaceKey}'`);
+    return { pageId: 'dry-run', created: true };
+  }
+  const page = await client.createPage({
+    spaceKey: opts.spaceKey,
+    title: opts.title,
+    parentId: opts.parentPageId,
+  });
+  console.log(`[publish] created page ${page.id} "${opts.title}" in space ${opts.spaceKey}`);
+  return { pageId: page.id, created: true };
+}
+
+export async function publishPage(
+  opts: PublishPageOptions,
+  cfg: ConfluenceConfig,
+): Promise<PublishPageResult> {
+  let markdown: string;
+  if (opts.markdownPath) {
+    markdown = readFileSync(opts.markdownPath, 'utf-8');
+  } else if (opts.markdown !== undefined) {
+    markdown = opts.markdown instanceof Markdown ? opts.markdown.toString() : opts.markdown;
+  } else {
+    throw new Error('publishPage: either markdownPath or markdown must be provided');
+  }
+  const images = opts.images ?? [];
+  const files = opts.files ?? [];
+  const tables = opts.tables ?? [];
+  const registry = opts.registry ?? defaultMacroRegistry;
+  const hashKey = opts.hashPropertyKey ?? DEFAULT_HASH_PROPERTY_KEY;
+
+  validateMarkdown({
+    markdown,
+    imagePaths: images,
+    filePaths: files,
+    tableNames: tables.map((t) => t.name),
+    sourceLabel: opts.markdownPath,
+  });
+
+  // Подставляем таблицы в markdown (уже могут быть обёрнуты в макросы).
+  for (const table of tables) {
+    const tableMarkdown = table.markdown instanceof Markdown ? table.markdown.toString() : table.markdown;
+    markdown = markdown.replace(new RegExp(`\\{\\{table:${escapeRegex(table.name)}\\}\\}`, 'g'), () => tableMarkdown);
+  }
+
+  const client = new ConfluenceClient(cfg);
+  const attachmentSvc = new AttachmentService(client);
+
+  const { pageId, created } = await resolvePage(client, opts);
+
+  // 1. Загрузка аттачей (или переиспользование по SHA-256). Собираем
+  //    отдельные карты «имя → URL» для картинок и файлов — рендер потом
+  //    подставит эти URL в <img src=…> и <a href=…> вместо плейсхолдеров.
+  const urls: AttachmentUrls = { images: new Map(), files: new Map() };
+  const attachments: PublishPageResult['attachments'] = [];
+  if (opts.dryRun) {
+    // В dry-run не трогаем Confluence — подставляем фиктивные URL, чтобы
+    // рендер и валидация плейсхолдеров отработали полностью.
+    for (const p of images) urls.images.set(basenameOf(p), `dry-run://img/${basenameOf(p)}`);
+    for (const p of files) urls.files.set(basenameOf(p), `dry-run://file/${basenameOf(p)}`);
+  } else {
+    for (const p of images) {
+      const r = await attachmentSvc.ensure(pageId, p);
+      urls.images.set(r.filename, r.downloadUrl);
+      attachments.push({ filename: r.filename, id: r.id, reused: r.reused, url: r.downloadUrl });
+      console.log(
+        `[attachment] ${r.filename}: ${r.reused ? 'reused' : 'uploaded'} (id=${r.id})`,
+      );
+    }
+    for (const p of files) {
+      const r = await attachmentSvc.ensure(pageId, p);
+      urls.files.set(r.filename, r.downloadUrl);
+      attachments.push({ filename: r.filename, id: r.id, reused: r.reused, url: r.downloadUrl });
+      console.log(
+        `[attachment] ${r.filename}: ${r.reused ? 'reused' : 'uploaded'} (id=${r.id})`,
+      );
+    }
+  }
+
+  // 2. Рендер MD → storage format с подстановкой полученных URL-ов.
+  let storage = renderToStorage(markdown, urls);
+
+  // 2.5. Преобразование маркеров макросов в XHTML.
+  storage = processMacros(storage, registry).toString();
+
+  if (opts.dryRun) {
+    console.log(`[publish] dry-run: page ${pageId} rendered OK (${storage.length} bytes of storage)`);
+    return {
+      pageId,
+      title: opts.title ?? '',
+      version: 0,
+      attachments,
+      updated: false,
+      created,
+      storage,
+    };
+  }
+
+  // 3. Content-hash check. Hash хранится в content property, не в body.
+  const newHash = computeContentHash(storage);
+  const [existing, hashProp] = await Promise.all([
+    client.getPageStorage(pageId),
+    client.getContentProperty(pageId, hashKey),
+  ]);
+  const title = opts.title ?? existing.title;
+  const existingHash =
+    hashProp && typeof hashProp.value === 'object' && hashProp.value !== null
+      ? ((hashProp.value as { hash?: unknown }).hash as string | undefined) ?? null
+      : null;
+
+  if (existingHash === newHash && title === existing.title) {
+    console.log(
+      `[publish] ${pageId} "${title}" → UNCHANGED (hash ${newHash.slice(0, 12)}, v${existing.version})`,
+    );
+    if (opts.labels?.length) await client.addLabels(pageId, opts.labels);
+    return { pageId, title, version: existing.version, attachments, updated: false, created, storage };
+  }
+
+  // 4. Обновление страницы — только после успешного аплоада всех аттачей.
+  const nextVersion = existing.version + 1;
+  await client.updatePage(pageId, {
+    title,
+    version: nextVersion,
+    storage,
+    versionMessage: opts.versionMessage,
+  });
+
+  // 5. Запись/обновление content property с новым hash. Делаем ПОСЛЕ
+  //    updatePage чтобы при сбое publish hash не «опередил» реальное содержимое.
+  await client.setContentProperty(
+    pageId,
+    hashKey,
+    { hash: newHash },
+    hashProp ? hashProp.version : null,
+  );
+
+  if (opts.labels?.length) await client.addLabels(pageId, opts.labels);
+
+  console.log(
+    `[publish] ${pageId} "${title}" → v${nextVersion} (hash ${newHash.slice(0, 12)})`,
+  );
+
+  return { pageId, title, version: nextVersion, attachments, updated: true, created, storage };
+}
+
+function basenameOf(p: string): string {
+  const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return idx === -1 ? p : p.slice(idx + 1);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
