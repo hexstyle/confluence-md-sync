@@ -48,10 +48,11 @@ Markdown + three placeholder kinds:
 ```markdown
 # Отчёт за месяц
 
-{{img:flow.png}}          <!-- inline image from images[] -->
+{{img:chart.png}}            <!-- inline image from images[] -->
+{{img:flow.bpmn}}            <!-- BPMN diagram — rendered to PNG automatically -->
 Исходник: {{file:data.csv}}  <!-- attachment link from files[] -->
 
-{{table:summary}}         <!-- table injected from tables[] -->
+{{table:summary}}            <!-- table injected from tables[] -->
 ```
 
 ```ts
@@ -66,7 +67,10 @@ const summary = renderMarkdownTable(rows, [
 await publishPage({
   pageId: '123456789',
   markdownPath: 'docs/report.md',
-  images: ['build/flow.png'],
+  images: [
+    'build/chart.png',
+    'docs/flow.bpmn',   // converted to flow.png on the fly (see BPMN section)
+  ],
   files: ['build/data.csv'],
   tables: [{
     name: 'summary',
