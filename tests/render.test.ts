@@ -10,7 +10,7 @@ import { validateMarkdown, MarkdownValidationError } from '../src/markdown/valid
 describe('extractPlaceholders', () => {
   it('splits images and files, dedupes', () => {
     const r = extractPlaceholders('{{img:a.png}} {{file:b.csv}} {{img:a.png}}');
-    expect(r).toEqual({ images: ['a.png'], files: ['b.csv'] });
+    expect(r).toEqual({ images: ['a.png'], files: ['b.csv'], pages: [] });
   });
 });
 

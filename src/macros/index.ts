@@ -38,7 +38,7 @@ import {
   toc,
   warning,
 } from './plugins/core.js';
-import { tableExcerpt, tableExcerptInclude, tableFilter } from './plugins/table-filter.js';
+import { tableExcerpt, tableExcerptInclude, tableFilter, tableJoiner } from './plugins/table-filter.js';
 
 /** Creates a registry pre-loaded with all built-in plugins. */
 export function createDefaultRegistry(): MacroRegistry {
@@ -81,4 +81,5 @@ export const macros = {
   tableExcerpt,
   tableFilter,
   tableExcerptInclude,
+  tableJoiner,
 };

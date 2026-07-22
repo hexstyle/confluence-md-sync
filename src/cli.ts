@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * Минимальный CLI:
+ * CLI: три подкоманды.
  *
  *   confluence-md-sync publish page.md --page-id 12345 \
  *     --image build/p1.png --file data.csv --label docs --dry-run
- *
  *   confluence-md-sync publish page.md --space DOCS --title "My Page" --parent-id 777
+ *
+ *   confluence-md-sync export 12345 --out-dir ./exported
+ *   confluence-md-sync roundtrip 12345           # проверка без потерь, ничего не пишет
  *
  * Конфиг — из env: CONFLUENCE_BASE_URL, CONFLUENCE_TOKEN (или CONFLUENCE_PAT),
  * CONFLUENCE_USERNAME, CONFLUENCE_AUTH_TYPE (bearer|basic).
@@ -14,13 +16,17 @@
 import { parseArgs } from 'node:util';
 import { loadConfigFromEnv } from './client/config.js';
 import { publishPage } from './publish/publish.js';
+import { exportPage } from './export/export-page.js';
+import { roundTripPage } from './export/roundtrip.js';
 
-const HELP = `confluence-md-sync — publish Markdown to Confluence
+const HELP = `confluence-md-sync — Markdown ⇄ Confluence
 
 Usage:
-  confluence-md-sync publish <markdown-file> [options]
+  confluence-md-sync publish   <markdown-file> [options]
+  confluence-md-sync export    <page-id> [--out-dir <dir>] [--no-attachments]
+  confluence-md-sync roundtrip <page-id> [--show-markdown]
 
-Options:
+publish options:
   --page-id <id>        Target page ID
   --space <key>         Space key (with --title, when page ID is unknown)
   --title <title>       Page title (rename, or lookup/create key with --space)
@@ -33,7 +39,14 @@ Options:
   --message <text>      Page version comment
   --no-create           Fail instead of creating a missing page
   --dry-run             Render and validate without writing to Confluence
-  --help                Show this help
+
+export options:
+  --out-dir <dir>       Output directory (default: ./<page-id>); writes page.md
+                        and attachments/
+  --no-attachments      Do not download referenced attachments
+
+roundtrip options:
+  --show-markdown       Print the intermediate Markdown to stdout
 
 Environment:
   CONFLUENCE_BASE_URL   e.g. https://confluence.example.com
@@ -56,41 +69,73 @@ async function main(): Promise<void> {
       message: { type: 'string' },
       'no-create': { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      'out-dir': { type: 'string' },
+      'no-attachments': { type: 'boolean' },
+      'show-markdown': { type: 'boolean' },
       help: { type: 'boolean' },
     },
   });
 
-  if (values.help || positionals.length === 0) {
+  const [command, arg] = positionals;
+  if (values.help || command === undefined) {
     console.log(HELP);
     process.exit(values.help ? 0 : 1);
   }
 
-  const [command, markdownPath] = positionals;
-  if (command !== 'publish' || !markdownPath) {
-    console.error(`Unknown command or missing file. See --help.`);
-    process.exit(1);
+  const cfg = loadConfigFromEnv();
+
+  if (command === 'publish') {
+    if (!arg) throw new Error('publish: markdown file is required');
+    const result = await publishPage(
+      {
+        pageId: values['page-id'],
+        spaceKey: values.space,
+        title: values.title,
+        parentPageId: values['parent-id'],
+        markdownPath: arg,
+        images: values.image ?? [],
+        files: values.file ?? [],
+        labels: values.label,
+        versionMessage: values.message,
+        createIfMissing: values['no-create'] ? false : undefined,
+        dryRun: values['dry-run'],
+      },
+      cfg,
+    );
+    console.log(
+      `[cli] ${result.updated ? 'published' : 'unchanged'}: page ${result.pageId} v${result.version}`,
+    );
+    return;
   }
 
-  const cfg = loadConfigFromEnv();
-  const result = await publishPage(
-    {
-      pageId: values['page-id'],
-      spaceKey: values.space,
-      title: values.title,
-      parentPageId: values['parent-id'],
-      markdownPath,
-      images: values.image ?? [],
-      files: values.file ?? [],
-      labels: values.label,
-      versionMessage: values.message,
-      createIfMissing: values['no-create'] ? false : undefined,
-      dryRun: values['dry-run'],
-    },
-    cfg,
-  );
-  console.log(
-    `[cli] ${result.updated ? 'published' : 'unchanged'}: page ${result.pageId} v${result.version}`,
-  );
+  if (command === 'export') {
+    if (!arg) throw new Error('export: page id is required');
+    const result = await exportPage(
+      arg,
+      { outDir: values['out-dir'] ?? `./${arg}`, downloadAttachments: !values['no-attachments'] },
+      cfg,
+    );
+    console.log(
+      `[cli] exported page ${result.pageId} "${result.title}" v${result.version} → ${result.markdownPath}` +
+        ` (${result.downloaded.size} attachment(s), ${result.stats.fenced} raw storage block(s))`,
+    );
+    return;
+  }
+
+  if (command === 'roundtrip') {
+    if (!arg) throw new Error('roundtrip: page id is required');
+    const result = await roundTripPage(arg, cfg);
+    if (values['show-markdown']) console.log(result.markdown);
+    console.log(
+      `[cli] roundtrip page ${arg} "${result.title}": ${result.equal ? 'OK — no markup loss' : 'DIFFERENCES FOUND'}` +
+        ` (markers=${result.stats.markers}, fenced=${result.stats.fenced}, rawHtml=${result.stats.rawHtml})`,
+    );
+    for (const d of result.diffs) console.error(`  ${d.path}: ${d.message}`);
+    process.exit(result.equal ? 0 : 2);
+  }
+
+  console.error(`Unknown command '${command}'. See --help.`);
+  process.exit(1);
 }
 
 main().catch((err: unknown) => {

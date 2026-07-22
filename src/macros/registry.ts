@@ -1,6 +1,6 @@
 import { Markdown } from '../markdown/markdown.js';
 import { unescapeParamValue } from './builder.js';
-import { generateMacroId } from './xml.js';
+import { generateMacroId, structuredMacro } from './xml.js';
 import type { MacroParam, MacroPlugin, MacroRenderer } from './types.js';
 
 /**
@@ -16,6 +16,7 @@ import type { MacroParam, MacroPlugin, MacroRenderer } from './types.js';
 export class MacroRegistry {
   private renderers = new Map<string, MacroRenderer>();
   private pluginNames: string[] = [];
+  private passthroughUnknown = true;
 
   /** Registers all macros of a plugin. Later registrations win on name clash. */
   use(plugin: MacroPlugin): this {
@@ -43,11 +44,39 @@ export class MacroRegistry {
     return this.renderers;
   }
 
+  /**
+   * Управляет обработкой маркеров с именами, которых нет в реестре.
+   * По умолчанию ВКЛЮЧЕНО: такой маркер рендерится «как есть» —
+   * <ac:structured-macro> с параметрами из маркера и rich-text телом
+   * (если тело непустое). Это делает публикуемым любой макрос без явной
+   * регистрации (в т.ч. страницы, полученные из exportPage). Выключение
+   * возвращает старое поведение: незнакомый маркер остаётся комментарием.
+   */
+  passthroughUnknownMacros(enable = true): this {
+    this.passthroughUnknown = enable;
+    return this;
+  }
+
+  get allowsUnknownMacros(): boolean {
+    return this.passthroughUnknown;
+  }
+
   /** Names of plugins registered via {@link use} (for diagnostics). */
   get plugins(): string[] {
     return [...this.pluginNames];
   }
 }
+
+/** Renderer «как есть» для макросов, не зарегистрированных в реестре. */
+function passthroughRenderer(name: string): MacroRenderer {
+  return (ctx) =>
+    structuredMacro(name, ctx.macroId, {
+      params: ctx.params,
+      ...(ctx.body.trim() !== '' ? { richBody: ctx.body } : {}),
+    });
+}
+
+const ANY_START_MARKER_RE = /<!-- MACRO:start:([A-Za-z0-9_-]+)/g;
 
 /**
  * Преобразует маркеры макросов в XHTML storage format.
@@ -73,9 +102,29 @@ export function processMacros(storage: Markdown | string, registry: MacroRegistr
         break;
       }
     }
+
+    // Незнакомые имена — passthrough-рендером (если разрешён). После
+    // зарегистрированных, чтобы явные рендереры всегда были в приоритете.
+    if (!modified && registry.allowsUnknownMacros) {
+      for (const name of findMarkerNames(content)) {
+        if (registry.has(name)) continue;
+        const result = processMacroType(content, name, passthroughRenderer(name));
+        if (result !== content) {
+          content = result;
+          modified = true;
+          break;
+        }
+      }
+    }
   }
 
   return new Markdown(content);
+}
+
+function findMarkerNames(storage: string): Set<string> {
+  const names = new Set<string>();
+  for (const m of storage.matchAll(ANY_START_MARKER_RE)) names.add(m[1]);
+  return names;
 }
 
 function processMacroType(storage: string, macroName: string, renderer: MacroRenderer): string {

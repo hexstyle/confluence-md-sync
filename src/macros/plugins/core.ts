@@ -118,6 +118,8 @@ export const coreMacrosPlugin: MacroPlugin = {
     richBodyMacro('tip', ['title', 'icon']),
     richBodyMacro('panel'),
     richBodyMacro('excerpt', ['hidden', 'atlassian-macro-output-type']),
+    // Page Properties (details) + Page Properties Report (detailssummary)
+    richBodyMacro('details'),
     // Plain-text body
     codeMacro,
     // Bodyless
@@ -127,6 +129,7 @@ export const coreMacrosPlugin: MacroPlugin = {
     bodylessMacro('children'),
     bodylessMacro('pagetree'),
     bodylessMacro('recently-updated'),
+    bodylessMacro('detailssummary'),
     anchorMacro,
     includeMacro,
     excerptIncludeMacro,

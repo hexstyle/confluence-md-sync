@@ -7,7 +7,12 @@ import type { ConfluenceConfig } from '../client/config.js';
 import { AttachmentService } from '../attachments/attachment.js';
 import { bpmnOutputName, convertBpmn, isBpmnFile, type BpmnConversion } from '../bpmn/convert.js';
 import { downloadToFile, isHttpUrl, remoteFilename } from './remote.js';
-import { renameImagePlaceholders, renderToStorage, type AttachmentUrls } from '../markdown/render.js';
+import {
+  renameImagePlaceholders,
+  renderToStorage,
+  type AttachmentUrls,
+  type RenderStorageOptions,
+} from '../markdown/render.js';
 import { validateMarkdown } from '../markdown/validate.js';
 import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
@@ -75,6 +80,11 @@ export interface PublishPageOptions {
   hashPropertyKey?: string;
   /** Рендер и валидация без записи в Confluence. */
   dryRun?: boolean;
+  /**
+   * Опции рендера markdown → storage. Для страниц из exportPage:
+   * `{ imageStyle: 'attachment', fileStyle: 'attachment', linkify: false }`.
+   */
+  render?: RenderStorageOptions;
 }
 
 export interface PublishPageResult {
@@ -294,7 +304,7 @@ export async function publishPage(
   }
 
   // 2. Рендер MD → storage format с подстановкой полученных URL-ов.
-  let storage = renderToStorage(markdown, urls);
+  let storage = renderToStorage(markdown, urls, opts.render ?? {});
 
   // 2.5. Преобразование маркеров макросов в XHTML.
   storage = processMacros(storage, registry).toString();

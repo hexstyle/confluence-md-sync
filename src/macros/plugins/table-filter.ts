@@ -92,15 +92,36 @@ export const tableFilterPlugin: MacroPlugin = {
         }),
     },
     {
-      // Включение table-excerpt с другой страницы.
+      // Макрос "Объединение таблиц" (table-joiner): SQL-запрос по таблицам
+      // из тела макроса (обычно table-excerpt-include). Параметры — как есть;
+      // многострочный sql в маркере кодируется %0A (см. escapeParamValue).
+      name: 'table-joiner',
+      render: (ctx) =>
+        structuredMacro('table-joiner', ctx.macroId, {
+          params: ctx.params,
+          richBody: ctx.body,
+        }),
+    },
+    {
+      // Включение table-excerpt с другой страницы. page/space собираются в
+      // ac:link-параметр; остальные параметры (v, merge-tables, …)
+      // пробрасываются как есть.
       name: 'table-excerpt-include',
       render: (ctx) => {
         const map = paramMap(ctx.params);
         const params: Array<{ name: string; value: string; raw?: boolean }> = [
           { name: 'name', value: map.name ?? '' },
-          { name: 'page', value: pageLinkValue(map.page ?? '', map.space), raw: true },
-          { name: 'type', value: map.type ?? 'page' },
         ];
+        // Без page макрос ссылается на текущую страницу — параметр не пишем.
+        if (map.page !== undefined) {
+          params.push({ name: 'page', value: pageLinkValue(map.page, map.space), raw: true });
+          params.push({ name: 'type', value: map.type ?? 'page' });
+        } else if (map.type !== undefined) {
+          params.push({ name: 'type', value: map.type });
+        }
+        for (const p of ctx.params) {
+          if (!['name', 'page', 'space', 'type'].includes(p.name)) params.push(p);
+        }
         return structuredMacro('table-excerpt-include', ctx.macroId, { params });
       },
     },
@@ -149,6 +170,21 @@ export function tableFilter(
     builder.param(k, v);
   }
   return builder.toMarkdown();
+}
+
+/**
+ * Обёртывает markdown (обычно table-excerpt-include'ы) в макрос
+ * "объединение таблиц" с SQL-запросом. Многострочный SQL допустим.
+ *
+ * @example
+ *   tableJoiner(includesMd, "SELECT * FROM T1 LEFT JOIN T2 ON T1.'Код' = T2.'Код'")
+ */
+export function tableJoiner(
+  body: Markdown | string,
+  sql: string,
+  opts: Record<string, string | undefined> = {},
+): Markdown {
+  return macro('table-joiner').param('sql', sql).withParams(opts).body(body).toMarkdown();
 }
 
 /** Включение table-excerpt с другой страницы по имени выборки. */

@@ -55,10 +55,31 @@ export function macro(name: string): MacroBuilder {
   return new MacroBuilder(name);
 }
 
+/**
+ * Экранирование значения параметра для однострочного маркера-комментария.
+ * Кодируются: `%` (первым — иначе двойное декодирование), `=`/`:`
+ * (разделители маркера), `<`/`>` (чтобы значение с `-->` не оборвало
+ * комментарий) и переводы строк (маркер обязан остаться одной строкой —
+ * нужно для многострочных параметров вроде SQL у table-joiner).
+ */
 export function escapeParamValue(s: string): string {
-  return s.replace(/[=:]/g, (c) => (c === '=' ? '%3D' : '%3A'));
+  return s
+    .replace(/%/g, '%25')
+    .replace(/=/g, '%3D')
+    .replace(/:/g, '%3A')
+    .replace(/</g, '%3C')
+    .replace(/>/g, '%3E')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A');
 }
 
 export function unescapeParamValue(s: string): string {
-  return s.replace(/%3D/g, '=').replace(/%3A/g, ':');
+  return s
+    .replace(/%0A/g, '\n')
+    .replace(/%0D/g, '\r')
+    .replace(/%3E/g, '>')
+    .replace(/%3C/g, '<')
+    .replace(/%3A/g, ':')
+    .replace(/%3D/g, '=')
+    .replace(/%25/g, '%');
 }

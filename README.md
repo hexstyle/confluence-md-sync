@@ -23,10 +23,13 @@ npm install confluence-md-sync
 - **Fail before write** — placeholders, files and macro markers are validated
   up front; Confluence is never touched on a broken input.
 - **Pluggable macros** — built-in `core` + `table-filter` plugins, extend
-  with your own in a few lines.
+  with your own in a few lines; unknown macros pass through unchanged.
 - **Flexible sources** — images/files accept relative paths, absolute paths
   or `http(s)` URLs; URLs on your Confluence host are fetched with the
   configured token.
+- **Loss-free round-trip** — export a page to Markdown and publish it back;
+  what Markdown can't express is kept verbatim, verified by canonical
+  storage comparison.
 
 ## Configuration
 
@@ -167,6 +170,59 @@ import { convertBpmnFolder } from 'confluence-md-sync';
 await convertBpmnFolder({ srcDir: 'docs/diagrams', outDir: 'build' });
 ```
 
+## Export a page back to Markdown (round-trip)
+
+Pull an existing page by ID and turn its storage format into Markdown —
+without losing markup. The conversion is **loss-free by construction**: a
+three-tier policy renders each node as clean Markdown where possible,
+macro markers where a macro round-trips, and verbatim storage (raw HTML,
+or a ` ```confluence-storage ` fence) as a fallback. Attachments and page
+links become `{{img:...}}` / `{{file:...}}` / `{{page:...}}` placeholders.
+
+```ts
+import { exportPage } from 'confluence-md-sync';
+
+const { markdownPath, images, downloaded } = await exportPage(
+  '123456789',
+  { outDir: 'exported' },   // writes exported/page.md + exported/attachments/
+  cfg,
+);
+```
+
+Round-trip means *edit the Markdown, then publish it straight back*:
+
+```ts
+await publishPage({
+  pageId: '123456789',
+  markdownPath: 'exported/page.md',
+  images: ['exported/attachments/diagram.png'],
+  // exported markup uses native attachment/link references, not URLs:
+  render: { imageStyle: 'attachment', fileStyle: 'attachment', linkify: false },
+}, cfg);
+```
+
+Verify a page survives the trip with no markup loss (writes nothing):
+
+```ts
+import { roundTripPage } from 'confluence-md-sync';
+
+const r = await roundTripPage('123456789', cfg);
+console.log(r.equal, r.stats);   // true { markers, fenced, rawHtml }
+// r.diffs lists any canonical differences when equal === false
+```
+
+Equivalence is **canonical**, not byte-for-byte: `ac:macro-id`,
+schema-version, attribute/parameter order and entity vs literal forms are
+normalised away (Confluence itself rewrites these on every save). Use
+`compareStorage(a, b)` directly to diff two storage fragments.
+
+From the CLI:
+
+```bash
+confluence-md-sync export    123456789 --out-dir exported
+confluence-md-sync roundtrip 123456789 --show-markdown   # exit 2 on loss
+```
+
 ## Read pages and tables
 
 ```ts
@@ -220,6 +276,7 @@ macros.tableExcerptInclude('name', 'Source Page');
 // Table Filter and Charts app
 macros.tableExcerpt(md, 'name', /* hide */ true);
 macros.tableFilter(md, { totalrow: ',,Sum' });
+macros.tableJoiner(includesMd, "SELECT * FROM T1 LEFT JOIN T2 ON …");  // multiline SQL ok
 ```
 
 Or write markers by hand right in Markdown:
@@ -229,6 +286,10 @@ Or write markers by hand right in Markdown:
 Any **markdown**, including nested macros.
 <!-- MACRO:end:expand -->
 ```
+
+Any macro name works out of the box — one that isn't registered passes
+through to `<ac:structured-macro>` as-is (params + rich-text body). Disable
+with `registry.passthroughUnknownMacros(false)`.
 
 ### Custom macro plugin
 
@@ -255,6 +316,9 @@ npx confluence-md-sync publish docs/page.md --page-id 123456789 \
   --image build/flow.png --file build/data.csv --label docs
 
 npx confluence-md-sync publish docs/page.md --space DOCS --title "Моя страница" --dry-run
+
+npx confluence-md-sync export    123456789 --out-dir exported
+npx confluence-md-sync roundtrip 123456789               # exit 2 if markup would be lost
 ```
 
 ## CI publish plans
@@ -289,7 +353,8 @@ src/
 ├── macros/        registry, builder, plugins (core, table-filter)
 ├── attachments/   sha256 dedup, sidecar source hashes, version history
 ├── pages/         Page/Table object model, table parse & render
-├── publish/       idempotent publish pipeline, runPublish plans
+├── publish/       idempotent publish pipeline, runPublish plans, remote sources
+├── export/        storage parser, storage→Markdown, canonical compare, round-trip
 ├── wrapper.ts     confluence() facade
 ├── csv.ts         CSV helpers (subpath export ./csv)
 └── cli.ts         confluence-md-sync CLI
@@ -297,9 +362,9 @@ src/
 
 ## Roadmap
 
-Cloud API v2 backend · page-tree sync from a directory · storage→Markdown
-reverse conversion · Mermaid/PlantUML fences → images · fenced code →
-`code` macro · HTTP retry/backoff · comments API · dry-run diff preview.
+Cloud API v2 backend · page-tree sync from a directory · Mermaid/PlantUML
+fences → images · fenced code → `code` macro · HTTP retry/backoff ·
+comments API · dry-run diff preview.
 
 Issues and PRs welcome.
 

@@ -22,11 +22,14 @@ export { Markdown } from './markdown/markdown.js';
 export {
   renderToStorage,
   extractPlaceholders,
+  parsePlaceholder,
   renameImagePlaceholders,
   MissingAttachmentUrlError,
   PLACEHOLDER_RE,
   type AttachmentUrls,
   type ExtractedPlaceholders,
+  type PlaceholderRef,
+  type RenderStorageOptions,
 } from './markdown/render.js';
 export { validateMarkdown, MarkdownValidationError, type ValidateOptions } from './markdown/validate.js';
 
@@ -94,6 +97,35 @@ export {
   type PublishPlan,
   type RunPublishOptions,
 } from './publish/runner.js';
+
+// Export (storage → markdown) & round-trip
+export {
+  parseStorage,
+  serializeStorage,
+  decodeEntities,
+  StorageParseError,
+  type XNode,
+  type XElement,
+} from './export/xhtml.js';
+export {
+  canonicalize,
+  compareStorage,
+  type CNode,
+  type CompareResult,
+  type StorageDiff,
+} from './export/canonical.js';
+export {
+  storageToMarkdown,
+  type StorageToMarkdownOptions,
+  type StorageToMarkdownResult,
+} from './export/to-markdown.js';
+export {
+  roundTripStorage,
+  roundTripPage,
+  renderExportedMarkdown,
+  type RoundTripResult,
+} from './export/roundtrip.js';
+export { exportPage, type ExportPageOptions, type ExportPageResult } from './export/export-page.js';
 
 // Facade
 export { confluence, ConfluenceWrapper } from './wrapper.js';
