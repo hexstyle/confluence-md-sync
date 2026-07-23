@@ -4,15 +4,23 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ConfluenceClient } from '../client/client.js';
 import type { ConfluenceConfig } from '../client/config.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
 
 export interface ExportPageOptions {
-  /** Куда писать page.md и attachments/. */
-  outDir: string;
+  /**
+   * Точный путь до итогового md-файла. Альтернатива `outDir`. Аттачи (если
+   * включены) кладутся в `attachments/` рядом с этим файлом.
+   */
+  outFile?: string;
+  /**
+   * Каталог для `page.md` и `attachments/`. Используется, если не задан
+   * `outFile`. Если не задан ни тот, ни другой — `./<pageId>`.
+   */
+  outDir?: string;
   /** Скачивать ли аттачи, на которые ссылается страница. Default: true. */
   downloadAttachments?: boolean;
   registry?: MacroRegistry;
@@ -36,13 +44,13 @@ export async function exportPage(
   const page = await client.getPageStorage(pageId);
   const converted = storageToMarkdown(page.storage, { registry: opts.registry });
 
-  mkdirSync(opts.outDir, { recursive: true });
-  const markdownPath = join(opts.outDir, 'page.md');
+  const markdownPath = opts.outFile ?? join(opts.outDir ?? `./${pageId}`, 'page.md');
+  mkdirSync(dirname(markdownPath), { recursive: true });
   writeFileSync(markdownPath, converted.markdown);
 
   const downloaded = new Map<string, string>();
   if (opts.downloadAttachments !== false && converted.attachmentRefs.length > 0) {
-    const dir = join(opts.outDir, 'attachments');
+    const dir = join(dirname(markdownPath), 'attachments');
     mkdirSync(dir, { recursive: true });
     for (const name of converted.attachmentRefs) {
       const [att] = await client.listAttachments(pageId, name);

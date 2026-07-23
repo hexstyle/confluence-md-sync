@@ -23,7 +23,7 @@ const HELP = `confluence-md-sync — Markdown ⇄ Confluence
 
 Usage:
   confluence-md-sync publish   <markdown-file> [options]
-  confluence-md-sync export    <page-id> [--out-dir <dir>] [--no-attachments]
+  confluence-md-sync export    <page-id> [--out <file> | --out-dir <dir>] [--no-attachments]
   confluence-md-sync roundtrip <page-id> [--show-markdown]
 
 publish options:
@@ -41,6 +41,8 @@ publish options:
   --dry-run             Render and validate without writing to Confluence
 
 export options:
+  --out <file>          Write the Markdown to exactly this path (attachments,
+                        if any, go to attachments/ next to it)
   --out-dir <dir>       Output directory (default: ./<page-id>); writes page.md
                         and attachments/
   --no-attachments      Do not download referenced attachments
@@ -69,6 +71,7 @@ async function main(): Promise<void> {
       message: { type: 'string' },
       'no-create': { type: 'boolean' },
       'dry-run': { type: 'boolean' },
+      out: { type: 'string' },
       'out-dir': { type: 'string' },
       'no-attachments': { type: 'boolean' },
       'show-markdown': { type: 'boolean' },
@@ -112,7 +115,11 @@ async function main(): Promise<void> {
     if (!arg) throw new Error('export: page id is required');
     const result = await exportPage(
       arg,
-      { outDir: values['out-dir'] ?? `./${arg}`, downloadAttachments: !values['no-attachments'] },
+      {
+        outFile: values.out,
+        outDir: values['out-dir'],
+        downloadAttachments: !values['no-attachments'],
+      },
       cfg,
     );
     console.log(

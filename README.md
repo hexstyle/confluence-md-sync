@@ -10,7 +10,8 @@ typed tables back, attach files — idempotently, with a **pluggable macro
 system**. ESM-only, zero-config CI.
 
 ```bash
-npm install confluence-md-sync
+npm install confluence-md-sync          # as a library
+npm install -g confluence-md-sync       # as a CLI: `confluence-md-sync …`
 ```
 
 ## Highlights
@@ -311,14 +312,24 @@ splitting; `pageLinkValue()` builds `<ac:link><ri:page/>` parameter values.
 
 ## CLI
 
+Installed globally (`npm i -g confluence-md-sync`) the `confluence-md-sync`
+command is on your PATH; otherwise prefix the examples with `npx`. The
+instance URL and token come from the environment.
+
 ```bash
-npx confluence-md-sync publish docs/page.md --page-id 123456789 \
+export CONFLUENCE_BASE_URL='https://confluence.example.com'
+export CONFLUENCE_TOKEN='<your-PAT>'
+
+# Download a page to an exact .md path (add --no-attachments for the md only)
+confluence-md-sync export 123456789 --out ./page.md
+
+confluence-md-sync publish docs/page.md --page-id 123456789 \
   --image build/flow.png --file build/data.csv --label docs
 
-npx confluence-md-sync publish docs/page.md --space DOCS --title "Моя страница" --dry-run
+confluence-md-sync publish docs/page.md --space DOCS --title "Моя страница" --dry-run
 
-npx confluence-md-sync export    123456789 --out-dir exported
-npx confluence-md-sync roundtrip 123456789               # exit 2 if markup would be lost
+confluence-md-sync export    123456789 --out-dir exported   # page.md + attachments/
+confluence-md-sync roundtrip 123456789                      # exit 2 if markup would be lost
 ```
 
 ## CI publish plans
