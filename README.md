@@ -28,9 +28,9 @@ npm install -g confluence-md-sync       # as a CLI: `confluence-md-sync …`
 - **Flexible sources** — images/files accept relative paths, absolute paths
   or `http(s)` URLs; URLs on your Confluence host are fetched with the
   configured token.
-- **Loss-free round-trip** — export a page to Markdown and publish it back;
-  what Markdown can't express is kept verbatim, verified by canonical
-  storage comparison.
+- **Export & round-trip** — pull a page into Markdown and publish it back
+  loss-free (verified by canonical storage comparison), or export a
+  `readable`, pure-Markdown version for humans.
 
 ## Configuration
 
@@ -171,23 +171,28 @@ import { convertBpmnFolder } from 'confluence-md-sync';
 await convertBpmnFolder({ srcDir: 'docs/diagrams', outDir: 'build' });
 ```
 
-## Export a page back to Markdown (round-trip)
+## Export a page back to Markdown
 
-Pull an existing page by ID and turn its storage format into Markdown —
-without losing markup. The conversion is **loss-free by construction**: a
-three-tier policy renders each node as clean Markdown where possible,
-macro markers where a macro round-trips, and verbatim storage (raw HTML,
-or a ` ```confluence-storage ` fence) as a fallback. Attachments and page
-links become `{{img:...}}` / `{{file:...}}` / `{{page:...}}` placeholders.
+Pull an existing page by ID and turn its storage format into Markdown.
+Attachments and page links become `{{img:...}}` / `{{file:...}}` /
+`{{page:...}}` placeholders. Two modes trade fidelity against readability:
+
+| Mode | For | What it does |
+| --- | --- | --- |
+| `faithful` *(default)* | round-trip, editing then re-publishing | **Loss-free by construction.** Clean Markdown → macro markers → verbatim storage (raw HTML, or a ` ```confluence-storage ` fence) as a fallback. Perfect fidelity, but the raw-HTML blocks (complex tables, wrappers) render poorly in some Markdown viewers. |
+| `readable` | reading, diffing, docs you won't publish back | **Clean Markdown, no raw HTML.** Complex tables are flattened to GFM (merged cells → filled grid, block cells → `• …` joined by `<br>`), styled spans/wrappers are unwrapped, entities decoded. Keeps the content; **drops** colours, exact merge geometry, wrappers — *not* round-trippable. |
 
 ```ts
 import { exportPage } from 'confluence-md-sync';
 
 const { markdownPath, images, downloaded } = await exportPage(
   '123456789',
-  { outDir: 'exported' },   // writes exported/page.md + exported/attachments/
+  { outDir: 'exported' },              // faithful; writes page.md + attachments/
   cfg,
 );
+
+// Readable variant for humans:
+await exportPage('123456789', { outFile: 'page.md', mode: 'readable' }, cfg);
 ```
 
 Round-trip means *edit the Markdown, then publish it straight back*:
@@ -220,8 +225,9 @@ normalised away (Confluence itself rewrites these on every save). Use
 From the CLI:
 
 ```bash
-confluence-md-sync export    123456789 --out-dir exported
-confluence-md-sync roundtrip 123456789 --show-markdown   # exit 2 on loss
+confluence-md-sync export    123456789 --out page.md              # faithful
+confluence-md-sync export    123456789 --out page.md --readable   # clean Markdown
+confluence-md-sync roundtrip 123456789 --show-markdown            # exit 2 on loss
 ```
 
 ## Read pages and tables
@@ -321,7 +327,8 @@ export CONFLUENCE_BASE_URL='https://confluence.example.com'
 export CONFLUENCE_TOKEN='<your-PAT>'
 
 # Download a page to an exact .md path (add --no-attachments for the md only)
-confluence-md-sync export 123456789 --out ./page.md
+confluence-md-sync export 123456789 --out ./page.md              # faithful
+confluence-md-sync export 123456789 --out ./page.md --readable   # clean Markdown
 
 confluence-md-sync publish docs/page.md --page-id 123456789 \
   --image build/flow.png --file build/data.csv --label docs

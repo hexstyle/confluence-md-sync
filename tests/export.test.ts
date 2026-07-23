@@ -223,6 +223,79 @@ describe('macro system additions', () => {
   });
 });
 
+describe('storageToMarkdown readable mode', () => {
+  const readable = { mode: 'readable' as const };
+
+  it('never emits raw HTML blocks; complex tables become GFM', () => {
+    const src =
+      '<table class="wrapped" style="width: 800px;"><colgroup><col /><col /></colgroup>' +
+      '<thead><tr><th colspan="2">Детали</th></tr></thead>' +
+      '<tbody>' +
+      '<tr><td><div class="content-wrapper"><p><strong>Проц</strong></p>' +
+      '<ul><li>раз</li><li>два</li></ul></div></td>' +
+      '<td><p><br /></p></td></tr>' +
+      '</tbody></table>';
+    const { markdown, stats } = storageToMarkdown(src, readable);
+    expect(markdown).not.toMatch(/<table|<div|<colgroup|```confluence-storage/);
+    // colspan=2: содержимое в первой клетке диапазона, остальные пустые
+    expect(markdown).toContain('| Детали |  |');
+    expect(markdown).toContain('| --- | --- |');
+    // блочная ячейка сплющена: bullets + <br>, содержимое на месте
+    expect(markdown).toContain('**Проц**<br>• раз<br>• два');
+    // пустая ячейка (<p><br/></p>) действительно пустая
+    expect(markdown).toMatch(/\|\s*\|/);
+    expect(stats.lossy).toBeGreaterThan(0);
+  });
+
+  it('unwraps styled spans and drops colour, keeping text and emphasis', () => {
+    const { markdown } = storageToMarkdown(
+      '<p>до <span style="color: rgb(255,0,0);">крас <strong>ный</strong></span> после</p>',
+      readable,
+    );
+    expect(markdown).not.toContain('<span');
+    expect(markdown).toContain('до крас **ный** после');
+  });
+
+  it('decodes safe entities but keeps &lt;/&gt;/&amp;', () => {
+    const { markdown } = storageToMarkdown(
+      '<p>&quot;цитата&quot; &mdash; тире, a &lt; b &amp; c</p>',
+      readable,
+    );
+    expect(markdown).toContain('"цитата" — тире');
+    expect(markdown).toContain('&lt; b &amp; c');
+  });
+
+  it('escapes placeholder pipes exactly once inside table cells', () => {
+    const src =
+      '<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>' +
+      '<ac:image ac:height="23"><ri:attachment ri:filename="p.png" /></ac:image>' +
+      '</td></tr></tbody></table>';
+    const { markdown } = storageToMarkdown(src, readable);
+    expect(markdown).toContain('{{img:p.png\\|height=23}}');
+    expect(markdown).not.toContain('\\\\|');
+  });
+
+  it('keeps macro content when a macro cannot become a marker', () => {
+    // ac:layout is neither a known macro nor Markdown → faithful would fence
+    const src =
+      '<ac:layout><ac:layout-section ac:type="two_equal">' +
+      '<ac:layout-cell><p>левая</p></ac:layout-cell>' +
+      '<ac:layout-cell><p>правая</p></ac:layout-cell>' +
+      '</ac:layout-section></ac:layout>';
+    const { markdown, stats } = storageToMarkdown(src, readable);
+    expect(markdown).not.toContain('```confluence-storage');
+    expect(markdown).toContain('левая');
+    expect(markdown).toContain('правая');
+    expect(stats.fenced).toBe(0);
+  });
+
+  it('faithful mode is unchanged (still emits raw html / fences)', () => {
+    const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
+    expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved
+    expect(storageToMarkdown(src, readable).markdown).not.toContain('<table');
+  });
+});
+
 describe('roundTripStorage', () => {
   it('round-trips a composite page without canonical loss', () => {
     const storage =

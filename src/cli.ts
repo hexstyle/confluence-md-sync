@@ -23,7 +23,7 @@ const HELP = `confluence-md-sync — Markdown ⇄ Confluence
 
 Usage:
   confluence-md-sync publish   <markdown-file> [options]
-  confluence-md-sync export    <page-id> [--out <file> | --out-dir <dir>] [--no-attachments]
+  confluence-md-sync export    <page-id> [--out <file> | --out-dir <dir>] [--readable] [--no-attachments]
   confluence-md-sync roundtrip <page-id> [--show-markdown]
 
 publish options:
@@ -45,6 +45,9 @@ export options:
                         if any, go to attachments/ next to it)
   --out-dir <dir>       Output directory (default: ./<page-id>); writes page.md
                         and attachments/
+  --readable            Prefer clean Markdown over fidelity: no raw HTML blocks,
+                        complex tables flattened to GFM. Not round-trippable —
+                        loses styling/exact cell merges, keeps the content
   --no-attachments      Do not download referenced attachments
 
 roundtrip options:
@@ -73,6 +76,7 @@ async function main(): Promise<void> {
       'dry-run': { type: 'boolean' },
       out: { type: 'string' },
       'out-dir': { type: 'string' },
+      readable: { type: 'boolean' },
       'no-attachments': { type: 'boolean' },
       'show-markdown': { type: 'boolean' },
       help: { type: 'boolean' },
@@ -119,12 +123,16 @@ async function main(): Promise<void> {
         outFile: values.out,
         outDir: values['out-dir'],
         downloadAttachments: !values['no-attachments'],
+        mode: values.readable ? 'readable' : 'faithful',
       },
       cfg,
     );
+    const tail = values.readable
+      ? `${result.stats.lossy} block(s) simplified`
+      : `${result.stats.fenced} raw storage block(s)`;
     console.log(
       `[cli] exported page ${result.pageId} "${result.title}" v${result.version} → ${result.markdownPath}` +
-        ` (${result.downloaded.size} attachment(s), ${result.stats.fenced} raw storage block(s))`,
+        ` (${result.downloaded.size} attachment(s), ${tail})`,
     );
     return;
   }

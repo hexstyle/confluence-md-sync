@@ -1,18 +1,23 @@
 /**
- * Конвертация Confluence storage → Markdown с гарантией round-trip.
+ * Конвертация Confluence storage → Markdown. Два режима:
  *
- * Трёхуровневая политика на каждый узел:
+ * FAITHFUL (default) — гарантия round-trip. Трёхуровневая политика:
  *  1. чистый Markdown — заголовки, абзацы, списки, простые таблицы,
  *     ссылки, картинки-аттачи ({{img:...}}), page-ссылки ({{page:...}});
  *  2. маркеры макросов <!-- MACRO:start/end --> — для макросов, чей
  *     рендер восстанавливает исходный XHTML (проверяется на месте:
  *     маркер прогоняется через render-конвейер и сравнивается канонически);
- *  3. дословный XHTML — «как есть»: без ac:/ri:-тегов — сырым HTML
- *     (markdown-it пропускает его насквозь), с ними — fenced-блоком
- *     ```confluence-storage (разворачивается обратно при рендере).
+ *  3. дословный XHTML — «как есть»: без ac:/ri:-тегов — сырым HTML,
+ *     с ними — fenced-блоком ```confluence-storage.
+ *  Потери исключены по построению; но (3) даёт сырой HTML, который многие
+ *  md-редакторы показывают уродливо.
  *
- * Потери по построению исключены: всё, что не легло в (1)-(2), уезжает
- * в (3) дословно.
+ * READABLE — чистый Markdown ценой оформления. Round-trip НЕ гарантируется:
+ *  теряются цвета/стили спанов, div-обёртки, точная геометрия объединённых
+ *  ячеек; сохраняется смысловая нагрузка (текст, структура). Сложные
+ *  таблицы разворачиваются в GFM (colspan/rowspan → сетка с заполнением,
+ *  блочное содержимое ячеек — во flatten через <br>). Сырой HTML-блок не
+ *  выдаётся никогда.
  */
 
 import { macro } from '../macros/builder.js';
@@ -37,6 +42,11 @@ import {
 export interface StorageToMarkdownOptions {
   /** Реестр для проверки маркеров макросов (default: встроенный). */
   registry?: MacroRegistry;
+  /**
+   * 'faithful' (default) — round-trippable, но с сырым HTML в fallback;
+   * 'readable' — чистый Markdown ценой оформления, без round-trip.
+   */
+  mode?: 'faithful' | 'readable';
 }
 
 export interface StorageToMarkdownResult {
@@ -47,7 +57,13 @@ export interface StorageToMarkdownResult {
   files: string[];
   /** Все имена аттачей, упомянутые где-либо (включая fenced-блоки). */
   attachmentRefs: string[];
-  stats: { markers: number; fenced: number; rawHtml: number };
+  stats: {
+    markers: number;
+    fenced: number;
+    rawHtml: number;
+    /** readable-режим: сколько узлов конвертировано с потерей оформления. */
+    lossy: number;
+  };
 }
 
 /** Конвертирует storage-фрагмент страницы в Markdown. */
@@ -55,7 +71,7 @@ export function storageToMarkdown(
   storage: string,
   opts: StorageToMarkdownOptions = {},
 ): StorageToMarkdownResult {
-  const conv = new Converter(opts.registry ?? defaultMacroRegistry);
+  const conv = new Converter(opts.registry ?? defaultMacroRegistry, opts.mode === 'readable');
   const markdown = conv.blocksToMd(parseStorage(storage));
   const attachmentRefs = new Set<string>([...conv.images, ...conv.files]);
   for (const m of storage.matchAll(/ri:filename="([^"]*)"/g)) attachmentRefs.add(m[1]);
@@ -86,14 +102,22 @@ const CM_BLOCK_TAGS = new Set([
 
 const INLINE_RAW_WRAP = new Set(['span', 'u', 'sub', 'sup', 'small', 'big', 'font', 'del', 'ins', 'abbr', 'cite', 'q', 'mark', 'time']);
 
+// Блочные контейнеры-обёртки: в readable-режиме разворачиваются (их дети
+// обрабатываются как блоки), сам тег и его атрибуты отбрасываются.
+const UNWRAP_BLOCK = new Set([
+  'div', 'section', 'article', 'aside', 'figure', 'figcaption', 'header',
+  'footer', 'main', 'nav', 'center', 'details', 'summary',
+  'ac:layout', 'ac:layout-section', 'ac:layout-cell',
+]);
+
 const SAFE_URL_RE = /^[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+$/;
 
 class Converter {
   images = new Set<string>();
   files = new Set<string>();
-  stats = { markers: 0, fenced: 0, rawHtml: 0 };
+  stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0 };
 
-  constructor(private registry: MacroRegistry) {}
+  constructor(private registry: MacroRegistry, private readable = false) {}
 
   // ── Блочный уровень ──────────────────────────────────────────────────
 
@@ -140,6 +164,9 @@ class Converter {
       }
       if (el.name === 'hr') return '---';
       if (el.name === 'ul' || el.name === 'ol') return this.listToMd(el);
+      // Простую таблицу — в чистый GFM (оба режима). Сложную tableToMd
+      // отклоняет: faithful → сырой HTML, readable → readableFallback
+      // (lossy++ и разворот в GFM через readableTable).
       if (el.name === 'table') return this.tableToMd(el);
       if (el.name === 'ac:structured-macro') return this.macroToMd(el);
       if (el.name === 'ac:image' || el.name === 'ac:link') {
@@ -178,6 +205,8 @@ class Converter {
    * а рендер вернёт плейсхолдерам исходную ac:-форму.
    */
   private fallbackBlock(el: XElement): string {
+    if (this.readable) return this.readableFallback(el);
+
     const direct = this.tryRawHtml(el);
     if (direct !== null) return direct;
 
@@ -228,14 +257,80 @@ class Converter {
     return `${ticks}confluence-storage\n${content}\n${ticks}`;
   }
 
+  // ── Readable-режим: lossy-конвертация в чистый Markdown ────────────────
+
+  /**
+   * Fallback readable-режима: НИКОГДА не выдаёт сырой HTML-блок. Таблицы
+   * разворачивает в GFM, контейнеры-обёртки — в блоки, blockquote — в `>`,
+   * остальное — в инлайн/текст. Content сохраняется, оформление теряется.
+   */
+  private readableFallback(el: XElement): string {
+    this.stats.lossy++;
+    const name = el.name.toLowerCase();
+
+    if (el.name === 'table') {
+      try {
+        return this.readableTable(el);
+      } catch (e) {
+        if (!(e instanceof Unrepresentable)) throw e;
+      }
+    }
+    if (UNWRAP_BLOCK.has(name)) {
+      const inner = this.blocksToMd(el.children).trimEnd();
+      if (inner !== '') return inner;
+      return '';
+    }
+    if (name === 'blockquote') {
+      const inner = this.blocksToMd(el.children).trimEnd();
+      return inner
+        .split('\n')
+        .map((line) => (line === '' ? '>' : `> ${line}`))
+        .join('\n');
+    }
+    // p / td / th / li / caption и прочие «инлайн-контейнеры» → инлайн.
+    const inline = this.inlineToMd(el.children).trim();
+    if (inline !== '') return guardLineStart(inline);
+    // Совсем ничего не вышло — голый текст (может быть пустым).
+    return escapeMdText(textContent(el.children), {}, this.readable).trim();
+  }
+
   // ── Макросы ──────────────────────────────────────────────────────────
 
   private macroToMd(el: XElement): string {
     const name = getAttr(el, 'ac:name') ?? '';
     const markerMd = this.tryMacroMarker(el, name);
-    if (markerMd === null) return this.fence(serializeStorage([el]));
-    this.stats.markers++;
-    return markerMd;
+    if (markerMd !== null) {
+      this.stats.markers++;
+      return markerMd;
+    }
+    if (this.readable) return this.readableMacro(el);
+    return this.fence(serializeStorage([el]));
+  }
+
+  /**
+   * Readable-режим для макроса, который не лёг в маркер: сохраняем
+   * содержимое, теряем «обёртку» макроса. rich-text-body → блоки;
+   * plain-text-body → код-fence (обычный ``` — чистый Markdown);
+   * иначе — заголовок-подпись, чтобы место макроса не исчезло бесследно.
+   */
+  private readableMacro(el: XElement): string {
+    this.stats.lossy++;
+    const name = getAttr(el, 'ac:name') ?? 'macro';
+    for (const child of elements(el.children)) {
+      if (child.name === 'ac:rich-text-body') {
+        const inner = this.blocksToMd(child.children).trimEnd();
+        if (inner !== '') return inner;
+      }
+      if (child.name === 'ac:plain-text-body') {
+        const text = textContent(child.children);
+        if (text.trim() !== '') {
+          const ticks = '`'.repeat(Math.max(3, ...(text.match(/`+/g) ?? []).map((r) => r.length + 1)));
+          return `${ticks}\n${text}\n${ticks}`;
+        }
+      }
+    }
+    // Bodyless-макрос (toc, children, …) — оставляем видимый след.
+    return `_[macro: ${name}]_`;
   }
 
   /**
@@ -424,9 +519,124 @@ class Converter {
         content.every((n) => n.kind !== 'text' || /^[ \t\r\n]*$/.test(n.raw))) {
       content = els[0].children;
     }
-    const md = this.inlineToMd(content, { cell: true }).trim();
+    const md = this.inlineToMd(content, { cell: false }).trim();
     if (md.includes('\n')) throw new Unrepresentable();
-    return md;
+    // Пайпы экранируем один раз над всей ячейкой — покрывает и текст, и
+    // плейсхолдеры {{img:…|…}} (которые минуют инлайн-экранирование).
+    return md.replace(/\|/g, '\\|');
+  }
+
+  // ── Readable-таблицы: любая таблица → GFM ─────────────────────────────
+
+  /**
+   * Разворачивает произвольную таблицу (colspan/rowspan, блочные ячейки,
+   * несколько header-строк) в GFM. Объединения превращаются в плотную
+   * сетку: содержимое — в верхней-левой клетке диапазона, остальные клетки
+   * пустые. Первая строка сетки становится шапкой GFM.
+   */
+  private readableTable(table: XElement): string {
+    const trs: XElement[] = [];
+    let caption = '';
+    for (const child of elements(table.children)) {
+      if (child.name === 'caption') caption = this.inlineToMd(child.children).trim();
+      else if (['thead', 'tbody', 'tfoot'].includes(child.name)) {
+        for (const tr of elements(child.children)) if (tr.name === 'tr') trs.push(tr);
+      } else if (child.name === 'tr') trs.push(child);
+    }
+    if (trs.length === 0) throw new Unrepresentable();
+
+    // Плотная сетка с учётом colspan/rowspan.
+    const grid: string[][] = [];
+    const aligns: Array<'left' | 'right' | 'center' | 'none'> = [];
+    trs.forEach((tr, rowIdx) => {
+      if (!grid[rowIdx]) grid[rowIdx] = [];
+      let col = 0;
+      for (const cell of elements(tr.children)) {
+        if (cell.name !== 'td' && cell.name !== 'th') continue;
+        while (grid[rowIdx][col] !== undefined) col++;
+        const colspan = Math.max(1, Number(getAttr(cell, 'colspan') ?? '1') || 1);
+        const rowspan = Math.max(1, Number(getAttr(cell, 'rowspan') ?? '1') || 1);
+        // Экранируем пайпы ОДИН раз здесь — над всем содержимым ячейки
+        // (текст + плейсхолдеры {{img:…|…}} + буллеты), поэтому cellFlatten
+        // сам их не трогает (inline с cell:false).
+        const content = tidyCell(this.cellFlatten(cell.children)).replace(/\|/g, '\\|');
+        for (let r = 0; r < rowspan; r++) {
+          for (let c = 0; c < colspan; c++) {
+            const rr = rowIdx + r;
+            const cc = col + c;
+            if (!grid[rr]) grid[rr] = [];
+            grid[rr][cc] = r === 0 && c === 0 ? content : '';
+          }
+        }
+        if (rowIdx === 0) {
+          const a = readableAlign(cell);
+          for (let c = 0; c < colspan; c++) aligns[col + c] = a;
+        }
+        col += colspan;
+      }
+    });
+
+    const width = Math.max(...grid.map((r) => r.length));
+    if (width === 0) throw new Unrepresentable();
+    for (const r of grid) {
+      for (let c = 0; c < width; c++) if (r[c] === undefined) r[c] = '';
+    }
+    while (aligns.length < width) aligns.push('none');
+
+    const sep = aligns.map((a) =>
+      a === 'left' ? ':---' : a === 'right' ? '---:' : a === 'center' ? ':---:' : '---',
+    );
+    const rowMd = (cells: string[]): string => `| ${cells.join(' | ')} |`;
+    const lines = [rowMd(grid[0]), rowMd(sep), ...grid.slice(1).map(rowMd)];
+    const table_ = lines.join('\n');
+    return caption !== '' ? `**${caption}**\n\n${table_}` : table_;
+  }
+
+  /**
+   * Сплющивает содержимое ячейки в одну строку: абзацы и пункты списков
+   * разделяются `<br>` (единственный HTML, идиоматичный для GFM-ячеек),
+   * пункты помечаются `• `. Инлайн-разметка (жирный, ссылки, плейсхолдеры)
+   * сохраняется.
+   */
+  private cellFlatten(nodes: XNode[]): string {
+    const blocks: string[] = [];
+    let inlineRun: XNode[] = [];
+    const flush = (): void => {
+      if (inlineRun.length === 0) return;
+      const s = this.inlineToMd(inlineRun, { cell: false }).replace(/\s+/g, ' ').trim();
+      if (s !== '') blocks.push(s);
+      inlineRun = [];
+    };
+    for (const n of nodes) {
+      if (n.kind === 'el' && (n.name === 'ul' || n.name === 'ol')) {
+        flush();
+        blocks.push(this.flattenList(n));
+      } else if (n.kind === 'el' && n.name === 'p') {
+        flush();
+        const s = this.inlineToMd(n.children, { cell: false }).replace(/\s+/g, ' ').trim();
+        if (s !== '') blocks.push(s);
+      } else if (n.kind === 'el' && (UNWRAP_BLOCK.has(n.name.toLowerCase()) || n.name === 'blockquote')) {
+        flush();
+        const s = this.cellFlatten(n.children);
+        if (s !== '') blocks.push(s);
+      } else if (n.kind === 'el' && n.name === 'table') {
+        flush();
+        const s = this.cellFlatten(collectCellText(n));
+        if (s !== '') blocks.push(s);
+      } else {
+        inlineRun.push(n);
+      }
+    }
+    flush();
+    return blocks.filter((b) => b !== '').join('<br>');
+  }
+
+  private flattenList(list: XElement): string {
+    const items = elements(list.children).filter((li) => li.name === 'li');
+    return items
+      .map((li) => '• ' + this.cellFlatten(li.children))
+      .filter((s) => s !== '• ')
+      .join('<br>');
   }
 
   // ── Инлайн ───────────────────────────────────────────────────────────
@@ -483,11 +693,15 @@ class Converter {
     let out = '';
     for (const n of this.normalizeInline(nodes)) {
       if (n.kind === 'text') {
-        out += escapeMdText(n.raw, ctx);
+        out += escapeMdText(n.raw, ctx, this.readable);
         continue;
       }
-      if (n.kind === 'cdata') throw new Unrepresentable();
+      if (n.kind === 'cdata') {
+        if (this.readable) { out += escapeMdText(n.text, ctx, true); continue; }
+        throw new Unrepresentable();
+      }
       if (n.kind === 'comment') {
+        if (this.readable) continue; // невидимый комментарий — отбрасываем
         if (n.text.includes('MACRO:') || n.text.includes('-->')) throw new Unrepresentable();
         out += `<!--${n.text}-->`;
         continue;
@@ -503,16 +717,18 @@ class Converter {
         return this.wrapInline(el, '**', ctx);
       case 'em':
         return this.wrapInline(el, '*', ctx);
-      // <b>/<i> оставляем сырым HTML: ** рендерится в <strong>, а не в <b>.
+      // <b>/<i>: faithful — сырой HTML (** рендерится в <strong>, а не <b>);
+      // readable — маппим в **/* (потеря точного тега приемлема).
       case 'b':
+        return this.readable ? this.wrapInline(el, '**', ctx) : this.rawInline(el, ctx);
       case 'i':
-        return this.rawInline(el, ctx);
+        return this.readable ? this.wrapInline(el, '*', ctx) : this.rawInline(el, ctx);
       case 's':
         return this.wrapInline(el, '~~', ctx);
       case 'code': {
-        if (el.attrs.length > 0) throw new Unrepresentable();
-        const text = textContent(el.children);
-        if (text.includes('\n') || text.trim() === '') throw new Unrepresentable();
+        if (el.attrs.length > 0 && !this.readable) throw new Unrepresentable();
+        const text = textContent(el.children).replace(/\s*\n\s*/g, ' ');
+        if (text.trim() === '') return this.readable ? '' : (() => { throw new Unrepresentable(); })();
         const runs = text.match(/`+/g) ?? [];
         const ticks = '`'.repeat(Math.max(1, ...runs.map((r) => r.length + 1)));
         const pad = text.startsWith('`') || text.endsWith('`') || text.startsWith(' ') || text.endsWith(' ') ? ' ' : '';
@@ -526,32 +742,37 @@ class Converter {
         const src = getAttr(el, 'src') ?? '';
         const alt = getAttr(el, 'alt') ?? '';
         const other = el.attrs.filter(([k]) => k !== 'src' && k !== 'alt');
-        if (other.length === 0 && SAFE_URL_RE.test(src) && !/[[\]()]/.test(alt)) {
-          return `![${alt}](${src})`;
+        if ((other.length === 0 || this.readable) && SAFE_URL_RE.test(src) && !/[[\]()]/.test(alt)) {
+          return `![${alt}](${src})`; // readable: лишние атрибуты (class…) отбрасываются
         }
-        return this.rawInline(el, ctx);
+        return this.readable ? escapeMdText(alt, ctx, true) : this.rawInline(el, ctx);
       }
       case 'ac:image':
         return this.acImageToMd(el);
       case 'ac:link':
         return this.acLinkToMd(el);
       default:
+        // readable: любой не-ac инлайн-контейнер (span, u, sub, font, …)
+        // разворачиваем — тег и стили теряем, содержимое оставляем.
+        if (this.readable && !el.name.includes(':')) return this.inlineToMd(el.children, ctx);
+        if (this.readable) return escapeMdText(textContent(el.children), ctx, true);
         if (INLINE_RAW_WRAP.has(el.name)) return this.rawInline(el, ctx);
         throw new Unrepresentable();
     }
   }
 
   private wrapInline(el: XElement, marker: string, ctx: { cell?: boolean }): string {
-    if (el.attrs.length > 0) return this.rawInline(el, ctx);
+    if (el.attrs.length > 0 && !this.readable) return this.rawInline(el, ctx);
     const inner = this.inlineToMd(el.children, ctx);
     // Краевые ПРОСТЫЕ пробелы выносим наружу — `**текст **` маркдауном не
     // является. Юникодные пробелы (&nbsp; и т.п.) выносить нельзя (изменит
     // содержимое), а внутри маркеров они ломают flanking-правила — такой
-    // элемент отдаём сырым HTML.
+    // элемент отдаём сырым HTML (faithful) либо просто оставляем как есть
+    // без обёртки (readable).
     const m = /^([ \t]*)([\s\S]*?)([ \t]*)$/.exec(inner);
     if (!m || m[2] === '') return inner;
     const decodedEdges = decodeEntities(m[2]);
-    if (/^\s|\s$/u.test(decodedEdges)) return this.rawInline(el, ctx);
+    if (/^\s|\s$/u.test(decodedEdges)) return this.readable ? inner : this.rawInline(el, ctx);
     return `${m[1]}${marker}${m[2]}${marker}${m[3]}`;
   }
 
@@ -567,9 +788,11 @@ class Converter {
   private linkAnchorToMd(el: XElement, ctx: { cell?: boolean }): string {
     const href = getAttr(el, 'href') ?? '';
     const inner = this.inlineToMd(el.children, ctx);
-    if (el.attrs.length === 1 && el.attrs[0][0] === 'href' && SAFE_URL_RE.test(href) && !/[[\]]/.test(inner)) {
-      return `[${inner}](${href})`;
+    const onlyHref = el.attrs.length === 1 && el.attrs[0][0] === 'href';
+    if ((onlyHref || this.readable) && SAFE_URL_RE.test(href) && !/[[\]]/.test(inner)) {
+      return `[${inner}](${href})`; // readable: доп. атрибуты ссылки отбрасываются
     }
+    if (this.readable) return inner; // ссылку не выразить в MD — оставляем текст
     return this.rawInline(el, ctx);
   }
 
@@ -793,24 +1016,40 @@ const ENTITY_RE = /&(?:#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g;
  * Экранирует markdown-активные символы, сохраняя сущности (&nbsp; и т.п.)
  * как есть — markdown-it декодирует их при рендере.
  */
-function escapeMdText(raw: string, ctx: { cell?: boolean }): string {
+function escapeMdText(raw: string, ctx: { cell?: boolean }, readable = false): string {
   const collapsed = raw.replace(/[\r\n]+/g, ' ');
   let out = '';
   let last = 0;
   for (const m of collapsed.matchAll(ENTITY_RE)) {
-    out += escapePlain(collapsed.slice(last, m.index), ctx);
-    out += m[0];
+    out += escapePlain(collapsed.slice(last, m.index), ctx, readable);
+    if (readable) {
+      // readable: декодируем сущность в символ (&quot;→", &mdash;→—, nbsp→
+      // пробел). `<`, `>`, `&` оставляем сущностями — их «живой» символ
+      // мог бы создать случайный HTML/сущность. Нераспознанное — как есть.
+      const dec = decodeEntities(m[0]);
+      out += dec === m[0] || dec === '<' || dec === '>' || dec === '&'
+        ? m[0]
+        : escapePlain(dec, ctx, readable);
+    } else {
+      out += m[0];
+    }
     last = m.index + m[0].length;
   }
-  out += escapePlain(collapsed.slice(last), ctx);
+  out += escapePlain(collapsed.slice(last), ctx, readable);
   return out;
 }
 
-function escapePlain(s: string, ctx: { cell?: boolean }): string {
+function escapePlain(s: string, ctx: { cell?: boolean }, readable = false): string {
   let esc = s.replace(/[\\`*_[\]{}~]/g, (c) => '\\' + c);
+  if (readable) {
+    // readable: неразрывный пробел → обычный (чище на вид).
+    esc = esc.replace(/\u00A0/g, ' ');
+    if (ctx.cell) esc = esc.replace(/\|/g, '\\|');
+    return esc;
+  }
   // Сырой U+00A0 на краю абзаца съедается trim()'ом markdown-it —
   // в entity-форме переживает рендер (и виден при редактировании).
-  esc = esc.replace(/ /g, '&nbsp;');
+  esc = esc.replace(/\u00A0/g, '&nbsp;');
   if (ctx.cell) esc = esc.replace(/\|/g, '\\|');
   return esc;
 }
@@ -831,4 +1070,40 @@ function cellAlign(cell: XElement): 'left' | 'right' | 'center' | 'none' {
   const m = /^text-align:\s*(left|right|center);?\s*$/.exec(v);
   if (!m) throw new Unrepresentable();
   return m[1] as 'left' | 'right' | 'center';
+}
+
+/** Как cellAlign, но не бросает: любой нераспознанный стиль → 'none'. */
+function readableAlign(cell: XElement): 'left' | 'right' | 'center' | 'none' {
+  const style = getAttr(cell, 'style');
+  const m = style ? /text-align:\s*(left|right|center)/.exec(style) : null;
+  return m ? (m[1] as 'left' | 'right' | 'center') : 'none';
+}
+
+/**
+ * Причёсывает содержимое GFM-ячейки: нормализует `<br/>`→`<br>`, схлопывает
+ * подряд идущие переводы строк и срезает их по краям — чтобы «пустая»
+ * ячейка (в исходнике `<p><br/></p>`) стала действительно пустой.
+ */
+function tidyCell(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, '<br>')
+    .replace(/(?:\s*<br>\s*)+/g, '<br>')
+    .replace(/^<br>|<br>$/g, '')
+    .trim();
+}
+
+/** Разворачивает вложенную в ячейку таблицу в плоский список её ячеек. */
+function collectCellText(table: XElement): XNode[] {
+  const out: XNode[] = [];
+  const walk = (nodes: XNode[]): void => {
+    for (const n of nodes) {
+      if (n.kind === 'el' && (n.name === 'td' || n.name === 'th')) {
+        out.push({ kind: 'el', name: 'p', attrs: [], children: n.children, selfClosing: false });
+      } else if (n.kind === 'el') {
+        walk(n.children);
+      }
+    }
+  };
+  walk(table.children);
+  return out;
 }

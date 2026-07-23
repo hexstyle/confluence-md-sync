@@ -23,6 +23,11 @@ export interface ExportPageOptions {
   outDir?: string;
   /** Скачивать ли аттачи, на которые ссылается страница. Default: true. */
   downloadAttachments?: boolean;
+  /**
+   * 'faithful' (default) — round-trippable, с сырым HTML в fallback;
+   * 'readable' — чистый Markdown ценой оформления (round-trip не гарантирован).
+   */
+  mode?: 'faithful' | 'readable';
   registry?: MacroRegistry;
 }
 
@@ -42,7 +47,7 @@ export async function exportPage(
 ): Promise<ExportPageResult> {
   const client = new ConfluenceClient(cfg);
   const page = await client.getPageStorage(pageId);
-  const converted = storageToMarkdown(page.storage, { registry: opts.registry });
+  const converted = storageToMarkdown(page.storage, { registry: opts.registry, mode: opts.mode });
 
   const markdownPath = opts.outFile ?? join(opts.outDir ?? `./${pageId}`, 'page.md');
   mkdirSync(dirname(markdownPath), { recursive: true });
