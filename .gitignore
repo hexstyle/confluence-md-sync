@@ -152,3 +152,7 @@ vite.config.ts.timestamp-*
 .windsurf/
 .continue/
 CLAUDE.local.md
+/page.md
+/attachments/
+/exported/
+/doc/
