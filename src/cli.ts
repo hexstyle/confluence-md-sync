@@ -23,7 +23,7 @@ const HELP = `confluence-md-sync — Markdown ⇄ Confluence
 
 Usage:
   confluence-md-sync publish   <markdown-file> [options]
-  confluence-md-sync export    <page-id> [--out <file> | --out-dir <dir>] [--readable] [--no-attachments]
+  confluence-md-sync export    <page-id> [--out <file> | --out-dir <dir>] [--readable] [--local] [--records] [--no-attachments]
   confluence-md-sync roundtrip <page-id> [--show-markdown]
 
 publish options:
@@ -48,6 +48,12 @@ export options:
   --readable            Prefer clean Markdown over fidelity: no raw HTML blocks,
                         complex tables flattened to GFM. Not round-trippable —
                         loses styling/exact cell merges, keeps the content
+  --local               Reference downloaded attachments as local files:
+                        images as HTML <img src="attachments/…">, other files
+                        as [name](attachments/…) links. Implies --readable
+  --records             Unfold every table row into a "**Header:** value"
+                        record (records split by ---). For wide tables that
+                        don't fit as GFM. Implies --readable
   --no-attachments      Do not download referenced attachments
 
 roundtrip options:
@@ -77,6 +83,8 @@ async function main(): Promise<void> {
       out: { type: 'string' },
       'out-dir': { type: 'string' },
       readable: { type: 'boolean' },
+      local: { type: 'boolean' },
+      records: { type: 'boolean' },
       'no-attachments': { type: 'boolean' },
       'show-markdown': { type: 'boolean' },
       help: { type: 'boolean' },
@@ -117,17 +125,21 @@ async function main(): Promise<void> {
 
   if (command === 'export') {
     if (!arg) throw new Error('export: page id is required');
+    // --local и --records подразумевают readable-обработку текста.
+    const readable = values.readable || values.local || values.records;
     const result = await exportPage(
       arg,
       {
         outFile: values.out,
         outDir: values['out-dir'],
         downloadAttachments: !values['no-attachments'],
-        mode: values.readable ? 'readable' : 'faithful',
+        mode: readable ? 'readable' : 'faithful',
+        attachments: values.local ? 'local' : 'placeholder',
+        tables: values.records ? 'records' : 'auto',
       },
       cfg,
     );
-    const tail = values.readable
+    const tail = readable
       ? `${result.stats.lossy} block(s) simplified`
       : `${result.stats.fenced} raw storage block(s)`;
     console.log(

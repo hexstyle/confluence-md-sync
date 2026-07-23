@@ -302,6 +302,60 @@ describe('storageToMarkdown readable mode', () => {
     expect(paraLine).not.toContain('<br');
   });
 
+  it("attachments:'local' — images as <img> to local files, files as md links", () => {
+    const local = { attachments: 'local' as const };
+    const img = storageToMarkdown(
+      '<p><ac:image ac:height="23"><ri:attachment ri:filename="d.png" /></ac:image></p>',
+      local,
+    );
+    expect(img.markdown).toContain('<img src="attachments/d.png" height="23" alt="d.png" />');
+    expect(img.images).toEqual(['d.png']);
+
+    const file = storageToMarkdown(
+      '<p>см. <ac:link><ri:attachment ri:filename="отчёт.xlsx" />' +
+      '<ac:plain-text-link-body><![CDATA[отчёт]]></ac:plain-text-link-body></ac:link></p>',
+      local,
+    );
+    expect(file.markdown).toContain('[отчёт](attachments/отчёт.xlsx)');
+    expect(file.files).toEqual(['отчёт.xlsx']);
+  });
+
+  it("attachments:'local' — external ri:url image becomes <img> with the URL", () => {
+    const { markdown } = storageToMarkdown(
+      '<p><ac:image><ri:url ri:value="https://x/y.png" /></ac:image></p>',
+      { attachments: 'local' },
+    );
+    expect(markdown).toContain('<img src="https://x/y.png" alt="" />');
+  });
+
+  it("tables:'records' — each row becomes a **Header:** value record", () => {
+    const src =
+      '<table><thead><tr><th>Проект</th><th>Роль</th><th>Проц</th></tr></thead>' +
+      '<tbody>' +
+      '<tr><td>CP</td><td>TechLead</td><td>100</td></tr>' +
+      '<tr><td>MITS</td><td>Dev</td><td></td></tr>' + // пустая ячейка пропускается
+      '</tbody></table>';
+    const { markdown, stats } = storageToMarkdown(src, { tables: 'records' });
+    expect(markdown).toContain('**Проект:** CP\n**Роль:** TechLead\n**Проц:** 100');
+    expect(markdown).toContain('\n\n---\n\n');
+    expect(markdown).toContain('**Проект:** MITS\n**Роль:** Dev'); // без пустого **Проц:**
+    expect(markdown).not.toContain('**Проц:** \n');
+    expect(markdown).not.toMatch(/<table|\| ---/);
+    expect(stats.lossy).toBeGreaterThan(0);
+  });
+
+  it("tables:'records' expands colspan/rowspan via the shared grid", () => {
+    const src =
+      '<table><tbody>' +
+      '<tr><th>A</th><th>B</th></tr>' +
+      '<tr><td rowspan="2">x</td><td>1</td></tr>' +
+      '<tr><td>2</td></tr>' +
+      '</tbody></table>';
+    const { markdown } = storageToMarkdown(src, { tables: 'records' });
+    expect(markdown).toContain('**A:** x\n**B:** 1');
+    expect(markdown).toContain('**B:** 2'); // вторая строка: A пустая (rowspan-филлер) → пропущена
+  });
+
   it('faithful mode is unchanged (still emits raw html / fences)', () => {
     const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
     expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved

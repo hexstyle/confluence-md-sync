@@ -47,6 +47,24 @@ export interface StorageToMarkdownOptions {
    * 'readable' — чистый Markdown ценой оформления, без round-trip.
    */
   mode?: 'faithful' | 'readable';
+  /**
+   * Как ссылаться на аттачи:
+   *  - 'placeholder' (default) — {{img:name}} / {{file:name}} (для publish);
+   *  - 'local' — картинки как HTML `<img src="attachments/name">` (с
+   *    сохранением размеров), файлы как md-ссылки `[name](attachments/name)`.
+   *    Годится для самодостаточного просмотра рядом со скачанными файлами.
+   * Включение 'local' подразумевает readable-обработку текста.
+   */
+  attachments?: 'placeholder' | 'local';
+  /**
+   * Как выводить таблицы:
+   *  - 'auto' (default) — GFM (readable) / round-trip (faithful);
+   *  - 'records' — каждую строку разворачивать в запись
+   *    «**Заголовок:** значение», записи через `---`. Подразумевает readable.
+   */
+  tables?: 'auto' | 'records';
+  /** Префикс пути к локальным аттачам для attachments:'local'. Default: 'attachments/'. */
+  localPrefix?: string;
 }
 
 export interface StorageToMarkdownResult {
@@ -71,7 +89,17 @@ export function storageToMarkdown(
   storage: string,
   opts: StorageToMarkdownOptions = {},
 ): StorageToMarkdownResult {
-  const conv = new Converter(opts.registry ?? defaultMacroRegistry, opts.mode === 'readable');
+  const local = opts.attachments === 'local';
+  const records = opts.tables === 'records';
+  // 'local' и 'records' — заведомо не round-trip, поэтому включают readable-
+  // обработку текста (сущности, спаны, переносы), даже без mode:'readable'.
+  const readable = opts.mode === 'readable' || local || records;
+  const conv = new Converter(opts.registry ?? defaultMacroRegistry, {
+    readable,
+    localFiles: local,
+    tablesAsRecords: records,
+    localPrefix: opts.localPrefix ?? 'attachments/',
+  });
   const markdown = conv.blocksToMd(parseStorage(storage));
   const attachmentRefs = new Set<string>([...conv.images, ...conv.files]);
   for (const m of storage.matchAll(/ri:filename="([^"]*)"/g)) attachmentRefs.add(m[1]);
@@ -115,12 +143,29 @@ const SAFE_URL_RE = /^[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+$/;
 /** Контекст инлайн-конвертации. */
 type InlineCtx = { cell?: boolean; multiline?: boolean };
 
+interface ConverterOpts {
+  readable: boolean;
+  localFiles: boolean;
+  tablesAsRecords: boolean;
+  localPrefix: string;
+}
+
 class Converter {
   images = new Set<string>();
   files = new Set<string>();
   stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0 };
 
-  constructor(private registry: MacroRegistry, private readable = false) {}
+  private readable: boolean;
+  private localFiles: boolean;
+  private tablesAsRecords: boolean;
+  private localPrefix: string;
+
+  constructor(private registry: MacroRegistry, opts: ConverterOpts) {
+    this.readable = opts.readable;
+    this.localFiles = opts.localFiles;
+    this.tablesAsRecords = opts.tablesAsRecords;
+    this.localPrefix = opts.localPrefix;
+  }
 
   // ── Блочный уровень ──────────────────────────────────────────────────
 
@@ -170,10 +215,14 @@ class Converter {
       }
       if (el.name === 'hr') return '---';
       if (el.name === 'ul' || el.name === 'ol') return this.listToMd(el);
-      // Простую таблицу — в чистый GFM (оба режима). Сложную tableToMd
-      // отклоняет: faithful → сырой HTML, readable → readableFallback
-      // (lossy++ и разворот в GFM через readableTable).
-      if (el.name === 'table') return this.tableToMd(el);
+      if (el.name === 'table') {
+        // tables:'records' — любую таблицу разворачиваем в записи.
+        if (this.tablesAsRecords) return this.recordsTable(el);
+        // Простую таблицу — в чистый GFM (оба режима). Сложную tableToMd
+        // отклоняет: faithful → сырой HTML, readable → readableFallback
+        // (lossy++ и разворот в GFM через readableTable).
+        return this.tableToMd(el);
+      }
       if (el.name === 'ac:structured-macro') return this.macroToMd(el);
       if (el.name === 'ac:image' || el.name === 'ac:link') {
         // Блочная картинка/ссылка — оформляем как отдельный абзац.
@@ -539,12 +588,16 @@ class Converter {
   // ── Readable-таблицы: любая таблица → GFM ─────────────────────────────
 
   /**
-   * Разворачивает произвольную таблицу (colspan/rowspan, блочные ячейки,
-   * несколько header-строк) в GFM. Объединения превращаются в плотную
-   * сетку: содержимое — в верхней-левой клетке диапазона, остальные клетки
-   * пустые. Первая строка сетки становится шапкой GFM.
+   * Строит плотную сетку из произвольной таблицы (colspan/rowspan, блочные
+   * ячейки, несколько header-строк). Объединения раскрываются: содержимое —
+   * в верхней-левой клетке диапазона, остальные клетки пустые. Содержимое
+   * ячейки — flatten-строка БЕЗ экранирования пайпов (его делает вызывающий).
    */
-  private readableTable(table: XElement): string {
+  private buildTableGrid(table: XElement): {
+    grid: string[][];
+    aligns: Array<'left' | 'right' | 'center' | 'none'>;
+    caption: string;
+  } {
     const trs: XElement[] = [];
     let caption = '';
     for (const child of elements(table.children)) {
@@ -555,7 +608,6 @@ class Converter {
     }
     if (trs.length === 0) throw new Unrepresentable();
 
-    // Плотная сетка с учётом colspan/rowspan.
     const grid: string[][] = [];
     const aligns: Array<'left' | 'right' | 'center' | 'none'> = [];
     trs.forEach((tr, rowIdx) => {
@@ -566,10 +618,7 @@ class Converter {
         while (grid[rowIdx][col] !== undefined) col++;
         const colspan = Math.max(1, Number(getAttr(cell, 'colspan') ?? '1') || 1);
         const rowspan = Math.max(1, Number(getAttr(cell, 'rowspan') ?? '1') || 1);
-        // Экранируем пайпы ОДИН раз здесь — над всем содержимым ячейки
-        // (текст + плейсхолдеры {{img:…|…}} + буллеты), поэтому cellFlatten
-        // сам их не трогает (inline с cell:false).
-        const content = tidyCell(this.cellFlatten(cell.children)).replace(/\|/g, '\\|');
+        const content = tidyCell(this.cellFlatten(cell.children));
         for (let r = 0; r < rowspan; r++) {
           for (let c = 0; c < colspan; c++) {
             const rr = rowIdx + r;
@@ -592,14 +641,45 @@ class Converter {
       for (let c = 0; c < width; c++) if (r[c] === undefined) r[c] = '';
     }
     while (aligns.length < width) aligns.push('none');
+    return { grid, aligns, caption };
+  }
 
+  /** Разворачивает любую таблицу в GFM (сетка с заполнением объединений). */
+  private readableTable(table: XElement): string {
+    const { grid, aligns, caption } = this.buildTableGrid(table);
+    const esc = (s: string): string => s.replace(/\|/g, '\\|');
     const sep = aligns.map((a) =>
       a === 'left' ? ':---' : a === 'right' ? '---:' : a === 'center' ? ':---:' : '---',
     );
-    const rowMd = (cells: string[]): string => `| ${cells.join(' | ')} |`;
-    const lines = [rowMd(grid[0]), rowMd(sep), ...grid.slice(1).map(rowMd)];
+    const rowMd = (cells: string[]): string => `| ${cells.map(esc).join(' | ')} |`;
+    const lines = [rowMd(grid[0]), `| ${sep.join(' | ')} |`, ...grid.slice(1).map(rowMd)];
     const table_ = lines.join('\n');
     return caption !== '' ? `**${caption}**\n\n${table_}` : table_;
+  }
+
+  /**
+   * tables:'records' — каждую строку тела таблицы разворачивает в запись
+   * «**Заголовок:** значение» (пустые ячейки и колонки-филлеры пропускаются),
+   * записи разделяются `---`. Заголовки берутся из первой строки сетки.
+   */
+  private recordsTable(table: XElement): string {
+    this.stats.lossy++;
+    const { grid, caption } = this.buildTableGrid(table);
+    const header = grid[0];
+    const records: string[] = [];
+    for (const row of grid.slice(1)) {
+      const lines: string[] = [];
+      row.forEach((val, i) => {
+        const key = (header[i] ?? '').trim();
+        // В записи <br> из ячейки → «; » (одна строка, без HTML).
+        const value = val.replace(/<br>/g, '; ').trim();
+        if (key !== '' && value !== '') lines.push(`**${key}:** ${value}`);
+      });
+      if (lines.length > 0) records.push(lines.join('\n'));
+    }
+    if (records.length === 0) throw new Unrepresentable();
+    const body = records.join('\n\n---\n\n');
+    return caption !== '' ? `**${caption}**\n\n${body}` : body;
   }
 
   /**
@@ -814,6 +894,31 @@ class Converter {
     const kids = elements(el.children);
     if (kids.length !== 1) throw new Unrepresentable();
     const ref = kids[0];
+
+    // attachments:'local' — картинка как HTML <img> (сохраняет размеры).
+    // ri:attachment → локальный путь; ri:url → внешний URL как есть.
+    if (this.localFiles && (ref.name === 'ri:attachment' || ref.name === 'ri:url')) {
+      let src: string;
+      let alt = '';
+      if (ref.name === 'ri:attachment') {
+        const filename = getAttr(ref, 'ri:filename') ?? '';
+        this.images.add(filename);
+        src = this.localPrefix + filename;
+        alt = filename;
+      } else {
+        src = getAttr(ref, 'ri:value') ?? '';
+      }
+      const attrs: Array<[string, string]> = [['src', escapeXmlAttr(src)]];
+      for (const [k] of el.attrs) {
+        const plain = k.startsWith('ac:') ? k.slice(3) : k;
+        if (plain === 'height' || plain === 'width') {
+          attrs.push([plain, escapeXmlAttr(getAttr(el, k) ?? '')]);
+        }
+      }
+      attrs.push(['alt', escapeXmlAttr(alt)]);
+      return serializeStorage([{ kind: 'el', name: 'img', attrs, children: [], selfClosing: true }]);
+    }
+
     if (ref.name === 'ri:url') {
       if (ref.attrs.some(([k]) => k !== 'ri:value')) throw new Unrepresentable();
       const url = getAttr(ref, 'ri:value') ?? '';
@@ -878,8 +983,15 @@ class Converter {
         throw new Unrepresentable();
       }
       const filename = getAttr(ref, 'ri:filename') ?? '';
-      badPlaceholderPart(filename);
       this.files.add(filename);
+      // attachments:'local' — md-ссылка на локальный файл вместо {{file:}}.
+      if (this.localFiles) {
+        const label = (text ?? filename).replace(/[[\]]/g, '\\$&');
+        const path = this.localPrefix + filename;
+        const target = /[()\s]/.test(path) ? `<${path}>` : path;
+        return `[${label}](${target})`;
+      }
+      badPlaceholderPart(filename);
       return `{{file:${filename}${textAttr}}}`;
     }
     throw new Unrepresentable();

@@ -28,6 +28,13 @@ export interface ExportPageOptions {
    * 'readable' — чистый Markdown ценой оформления (round-trip не гарантирован).
    */
   mode?: 'faithful' | 'readable';
+  /**
+   * 'placeholder' (default) — {{img:}}/{{file:}}; 'local' — картинки как
+   * HTML `<img src="attachments/…">`, файлы как md-ссылки. Подразумевает readable.
+   */
+  attachments?: 'placeholder' | 'local';
+  /** 'auto' (default) или 'records' — строки таблиц как записи. Подразумевает readable. */
+  tables?: 'auto' | 'records';
   registry?: MacroRegistry;
 }
 
@@ -47,7 +54,12 @@ export async function exportPage(
 ): Promise<ExportPageResult> {
   const client = new ConfluenceClient(cfg);
   const page = await client.getPageStorage(pageId);
-  const converted = storageToMarkdown(page.storage, { registry: opts.registry, mode: opts.mode });
+  const converted = storageToMarkdown(page.storage, {
+    registry: opts.registry,
+    mode: opts.mode,
+    attachments: opts.attachments,
+    tables: opts.tables,
+  });
 
   const markdownPath = opts.outFile ?? join(opts.outDir ?? `./${pageId}`, 'page.md');
   mkdirSync(dirname(markdownPath), { recursive: true });

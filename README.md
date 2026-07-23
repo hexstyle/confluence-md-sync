@@ -199,6 +199,10 @@ console.log(downloaded);               // Map<filename, localPath> of saved atta
 
 // Readable variant for humans (writes page.md + ./attachments/ next to it):
 await exportPage('123456789', { outFile: 'page.md', mode: 'readable' }, cfg);
+
+// Self-contained (local <img>/links) with wide tables unfolded to records:
+await exportPage('123456789',
+  { outDir: 'doc', attachments: 'local', tables: 'records' }, cfg);
 ```
 
 Round-trip means *edit the Markdown, then publish it straight back*:
@@ -228,13 +232,28 @@ schema-version, attribute/parameter order and entity vs literal forms are
 normalised away (Confluence itself rewrites these on every save). Use
 `compareStorage(a, b)` directly to diff two storage fragments.
 
-From the CLI:
+### Which export variant?
+
+Attachments download to `attachments/` next to the `.md` in every variant
+(pass `--no-attachments` to skip). Flags compose; `--local` and `--records`
+imply `--readable`.
+
+| Command | Use it when | Output |
+| --- | --- | --- |
+| `export <id> --out page.md` | you'll **edit and publish it back** | Faithful, round-trippable; raw HTML kept for what Markdown can't express. |
+| `export <id> --out page.md --readable` | **reading / diffing** in a Markdown viewer | Clean Markdown, no raw HTML; complex tables → GFM. Not round-trippable. |
+| `export <id> --out-dir doc --local` | a **self-contained folder to view offline** | Like `--readable`, but images become `<img src="attachments/…">` (sizes kept) and files become `[name](attachments/…)` links pointing at the downloaded files. |
+| `export <id> --out page.md --records` | tables are **too wide** to read as a grid | Every table row is unfolded into a `**Header:** value` record (records split by `---`). Best for tables that have a header row. |
+| `export <id> --out-dir doc --local --records` | an **offline, wide-table-friendly** read | Both of the above together. |
+| `roundtrip <id>` | **checking** a page converts with no loss (CI) | Writes nothing; exits `2` if faithful conversion would lose markup. |
 
 ```bash
-# attachments download to ./attachments/ next to the .md (omit --no-attachments)
-confluence-md-sync export    123456789 --out page.md              # faithful
-confluence-md-sync export    123456789 --out page.md --readable   # clean Markdown
-confluence-md-sync roundtrip 123456789 --show-markdown            # exit 2 on loss
+confluence-md-sync export    123456789 --out page.md                     # faithful (edit → publish back)
+confluence-md-sync export    123456789 --out page.md --readable          # clean Markdown to read
+confluence-md-sync export    123456789 --out-dir doc --local             # self-contained: page.md + attachments/
+confluence-md-sync export    123456789 --out page.md --records           # wide tables → records
+confluence-md-sync export    123456789 --out-dir doc --local --records   # offline + records
+confluence-md-sync roundtrip 123456789 --show-markdown                   # verify, exit 2 on loss
 ```
 
 ## Read pages and tables
