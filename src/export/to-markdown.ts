@@ -112,6 +112,9 @@ const UNWRAP_BLOCK = new Set([
 
 const SAFE_URL_RE = /^[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+$/;
 
+/** Контекст инлайн-конвертации. */
+type InlineCtx = { cell?: boolean; multiline?: boolean };
+
 class Converter {
   images = new Set<string>();
   files = new Set<string>();
@@ -147,7 +150,10 @@ class Converter {
     const h = /^h([1-6])$/.exec(el.name);
     try {
       if (h && el.attrs.length === 0) {
-        const inline = this.inlineToMd(el.children);
+        // Заголовок однострочен по определению — в readable схлопываем
+        // возможные переводы строк (из <br>) в пробел.
+        let inline = this.inlineToMd(el.children);
+        if (this.readable) inline = inline.replace(/\s*\n\s*/g, ' ');
         if (inline.includes('\n') || inline.trim() === '') throw new Unrepresentable();
         return '#'.repeat(Number(h[1])) + ' ' + guardLineStart(inline.trim());
       }
@@ -185,13 +191,16 @@ class Converter {
     const el: XElement = { kind: 'el', name: 'p', attrs: [], children, selfClosing: false };
     if (children.length === 0) return this.fallbackBlock(el);
     try {
-      const inline = this.inlineToMd(children).trim();
+      // multiline: в readable-абзаце <br> становится настоящим переводом
+      // строки (см. case 'br'). guardLineStart применяем к КАЖДОЙ строке —
+      // после переноса тоже нельзя случайно начать список/заголовок.
+      const inline = this.inlineToMd(children, { multiline: true }).trim();
       if (inline === '') return this.fallbackBlock(el);
       // Абзац, начинающийся с блочного HTML-тега, markdown-it превратит в
       // html-блок без <p>-обёртки — такой отдаём дословно.
       const m = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/.exec(inline);
       if (m && CM_BLOCK_TAGS.has(m[1].toLowerCase())) return this.fallbackBlock(el);
-      return guardLineStart(inline);
+      return inline.split('\n').map((line) => guardLineStart(line)).join('\n');
     } catch (e) {
       if (!(e instanceof Unrepresentable)) throw e;
       return this.fallbackBlock(el);
@@ -288,8 +297,9 @@ class Converter {
         .join('\n');
     }
     // p / td / th / li / caption и прочие «инлайн-контейнеры» → инлайн.
-    const inline = this.inlineToMd(el.children).trim();
-    if (inline !== '') return guardLineStart(inline);
+    // multiline: это свободный поток (не ячейка) — <br> станет переносом.
+    const inline = this.inlineToMd(el.children, { multiline: true }).trim();
+    if (inline !== '') return inline.split('\n').map((l) => guardLineStart(l)).join('\n');
     // Совсем ничего не вышло — голый текст (может быть пустым).
     return escapeMdText(textContent(el.children), {}, this.readable).trim();
   }
@@ -519,7 +529,7 @@ class Converter {
         content.every((n) => n.kind !== 'text' || /^[ \t\r\n]*$/.test(n.raw))) {
       content = els[0].children;
     }
-    const md = this.inlineToMd(content, { cell: false }).trim();
+    const md = this.inlineToMd(content, { cell: true }).trim();
     if (md.includes('\n')) throw new Unrepresentable();
     // Пайпы экранируем один раз над всей ячейкой — покрывает и текст, и
     // плейсхолдеры {{img:…|…}} (которые минуют инлайн-экранирование).
@@ -603,7 +613,7 @@ class Converter {
     let inlineRun: XNode[] = [];
     const flush = (): void => {
       if (inlineRun.length === 0) return;
-      const s = this.inlineToMd(inlineRun, { cell: false }).replace(/\s+/g, ' ').trim();
+      const s = this.inlineToMd(inlineRun, { cell: true }).replace(/\s+/g, ' ').trim();
       if (s !== '') blocks.push(s);
       inlineRun = [];
     };
@@ -613,7 +623,7 @@ class Converter {
         blocks.push(this.flattenList(n));
       } else if (n.kind === 'el' && n.name === 'p') {
         flush();
-        const s = this.inlineToMd(n.children, { cell: false }).replace(/\s+/g, ' ').trim();
+        const s = this.inlineToMd(n.children, { cell: true }).replace(/\s+/g, ' ').trim();
         if (s !== '') blocks.push(s);
       } else if (n.kind === 'el' && (UNWRAP_BLOCK.has(n.name.toLowerCase()) || n.name === 'blockquote')) {
         flush();
@@ -689,7 +699,7 @@ class Converter {
     return out;
   }
 
-  private inlineToMd(nodes: XNode[], ctx: { cell?: boolean } = {}): string {
+  private inlineToMd(nodes: XNode[], ctx: InlineCtx = {}): string {
     let out = '';
     for (const n of this.normalizeInline(nodes)) {
       if (n.kind === 'text') {
@@ -711,7 +721,7 @@ class Converter {
     return out;
   }
 
-  private inlineElementToMd(el: XElement, ctx: { cell?: boolean }): string {
+  private inlineElementToMd(el: XElement, ctx: InlineCtx): string {
     switch (el.name) {
       case 'strong':
         return this.wrapInline(el, '**', ctx);
@@ -735,6 +745,10 @@ class Converter {
         return `${ticks}${pad}${text}${pad}${ticks}`;
       }
       case 'br':
+        // readable: в свободном потоке (абзац/цитата) — настоящий перенос
+        // строки; в ячейке GFM-таблицы перенос невозможен (сломал бы строку
+        // таблицы) — там остаётся <br>. faithful — всегда <br/> (round-trip).
+        if (this.readable) return ctx.multiline ? '\n' : ctx.cell ? '<br>' : '<br/>';
         return '<br/>';
       case 'a':
         return this.linkAnchorToMd(el, ctx);
@@ -761,7 +775,7 @@ class Converter {
     }
   }
 
-  private wrapInline(el: XElement, marker: string, ctx: { cell?: boolean }): string {
+  private wrapInline(el: XElement, marker: string, ctx: InlineCtx): string {
     if (el.attrs.length > 0 && !this.readable) return this.rawInline(el, ctx);
     const inner = this.inlineToMd(el.children, ctx);
     // Краевые ПРОСТЫЕ пробелы выносим наружу — `**текст **` маркдауном не
@@ -777,7 +791,7 @@ class Converter {
   }
 
   /** Инлайн-элемент дословно: открывающий тег + инлайн-дети + закрывающий. */
-  private rawInline(el: XElement, ctx: { cell?: boolean }): string {
+  private rawInline(el: XElement, ctx: InlineCtx): string {
     if (hasNamespacedElements([el])) throw new Unrepresentable();
     const attrs = el.attrs.map(([k, v]) => ` ${k}="${v}"`).join('');
     if (attrs.includes('\n')) throw new Unrepresentable();
@@ -785,7 +799,7 @@ class Converter {
     return `<${el.name}${attrs}>${this.inlineToMd(el.children, ctx)}</${el.name}>`;
   }
 
-  private linkAnchorToMd(el: XElement, ctx: { cell?: boolean }): string {
+  private linkAnchorToMd(el: XElement, ctx: InlineCtx): string {
     const href = getAttr(el, 'href') ?? '';
     const inner = this.inlineToMd(el.children, ctx);
     const onlyHref = el.attrs.length === 1 && el.attrs[0][0] === 'href';
@@ -1016,7 +1030,7 @@ const ENTITY_RE = /&(?:#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g;
  * Экранирует markdown-активные символы, сохраняя сущности (&nbsp; и т.п.)
  * как есть — markdown-it декодирует их при рендере.
  */
-function escapeMdText(raw: string, ctx: { cell?: boolean }, readable = false): string {
+function escapeMdText(raw: string, ctx: InlineCtx, readable = false): string {
   const collapsed = raw.replace(/[\r\n]+/g, ' ');
   let out = '';
   let last = 0;
@@ -1039,19 +1053,13 @@ function escapeMdText(raw: string, ctx: { cell?: boolean }, readable = false): s
   return out;
 }
 
-function escapePlain(s: string, ctx: { cell?: boolean }, readable = false): string {
-  let esc = s.replace(/[\\`*_[\]{}~]/g, (c) => '\\' + c);
-  if (readable) {
-    // readable: неразрывный пробел → обычный (чище на вид).
-    esc = esc.replace(/\u00A0/g, ' ');
-    if (ctx.cell) esc = esc.replace(/\|/g, '\\|');
-    return esc;
-  }
-  // Сырой U+00A0 на краю абзаца съедается trim()'ом markdown-it —
-  // в entity-форме переживает рендер (и виден при редактировании).
-  esc = esc.replace(/\u00A0/g, '&nbsp;');
-  if (ctx.cell) esc = esc.replace(/\|/g, '\\|');
-  return esc;
+function escapePlain(s: string, _ctx: InlineCtx, readable = false): string {
+  const esc = s.replace(/[\\`*_[\]{}~]/g, (c) => '\\' + c);
+  // Пайпы здесь НЕ трогаем — они экранируются один раз на границе ячейки
+  // (cellMd / readableTable), иначе плейсхолдеры {{img:…|…}} двоились бы.
+  // readable: неразрывный пробел → обычный; faithful: → entity (переживает
+  // trim() markdown-it на краю абзаца).
+  return esc.replace(/\u00A0/g, readable ? ' ' : '&nbsp;');
 }
 
 /** Экранирует конструкции, значимые в начале строки (#, >, -, 1. …). */

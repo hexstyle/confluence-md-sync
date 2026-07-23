@@ -180,18 +180,24 @@ Attachments and page links become `{{img:...}}` / `{{file:...}}` /
 | Mode | For | What it does |
 | --- | --- | --- |
 | `faithful` *(default)* | round-trip, editing then re-publishing | **Loss-free by construction.** Clean Markdown → macro markers → verbatim storage (raw HTML, or a ` ```confluence-storage ` fence) as a fallback. Perfect fidelity, but the raw-HTML blocks (complex tables, wrappers) render poorly in some Markdown viewers. |
-| `readable` | reading, diffing, docs you won't publish back | **Clean Markdown, no raw HTML.** Complex tables are flattened to GFM (merged cells → filled grid, block cells → `• …` joined by `<br>`), styled spans/wrappers are unwrapped, entities decoded. Keeps the content; **drops** colours, exact merge geometry, wrappers — *not* round-trippable. |
+| `readable` | reading, diffing, docs you won't publish back | **Clean Markdown, no raw HTML.** Complex tables are flattened to GFM (merged cells → filled grid, block cells → `• …` joined by `<br>`), styled spans/wrappers are unwrapped, entities decoded, and `<br>` in paragraphs becomes a real line break (inside table cells it stays `<br>` — GFM cells can't hold newlines). Keeps the content; **drops** colours, exact merge geometry, wrappers — *not* round-trippable. |
+
+Images and attachments are downloaded by default (pass
+`downloadAttachments: false` to skip). They land in `attachments/` next to
+the Markdown, and the page body references them via `{{img:name}}` /
+`{{file:name}}` — in both modes.
 
 ```ts
 import { exportPage } from 'confluence-md-sync';
 
 const { markdownPath, images, downloaded } = await exportPage(
   '123456789',
-  { outDir: 'exported' },              // faithful; writes page.md + attachments/
+  { outDir: 'exported' },              // faithful; exported/page.md + exported/attachments/
   cfg,
 );
+console.log(downloaded);               // Map<filename, localPath> of saved attachments
 
-// Readable variant for humans:
+// Readable variant for humans (writes page.md + ./attachments/ next to it):
 await exportPage('123456789', { outFile: 'page.md', mode: 'readable' }, cfg);
 ```
 
@@ -225,6 +231,7 @@ normalised away (Confluence itself rewrites these on every save). Use
 From the CLI:
 
 ```bash
+# attachments download to ./attachments/ next to the .md (omit --no-attachments)
 confluence-md-sync export    123456789 --out page.md              # faithful
 confluence-md-sync export    123456789 --out page.md --readable   # clean Markdown
 confluence-md-sync roundtrip 123456789 --show-markdown            # exit 2 on loss

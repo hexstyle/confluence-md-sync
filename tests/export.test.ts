@@ -289,6 +289,19 @@ describe('storageToMarkdown readable mode', () => {
     expect(stats.fenced).toBe(0);
   });
 
+  it('<br> becomes a real newline in paragraphs, stays <br> in table cells', () => {
+    const src =
+      '<p>строка один<br/>строка два</p>' +
+      '<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>' +
+      '<p>ячейка A<br/>ячейка B</p></td></tr></tbody></table>';
+    const { markdown } = storageToMarkdown(src, readable);
+    expect(markdown).toContain('строка один\nстрока два'); // абзац: перенос
+    expect(markdown).toContain('| ячейка A<br>ячейка B |'); // ячейка: <br>
+    // в самом абзаце тегов <br> не остаётся
+    const paraLine = markdown.split('\n\n')[0];
+    expect(paraLine).not.toContain('<br');
+  });
+
   it('faithful mode is unchanged (still emits raw html / fences)', () => {
     const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
     expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved
