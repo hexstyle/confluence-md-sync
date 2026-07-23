@@ -356,6 +356,35 @@ describe('storageToMarkdown readable mode', () => {
     expect(markdown).toContain('**B:** 2'); // вторая строка: A пустая (rowspan-филлер) → пропущена
   });
 
+  it("tables:'records' — multi-line cells become real newlines and md lists", () => {
+    const src =
+      '<table><thead><tr><th>Что</th></tr></thead><tbody><tr><td>' +
+      '<p><strong>Процесс</strong></p><ul><li>раз</li><li>два</li></ul>' +
+      '</td></tr></tbody></table>';
+    const { markdown } = storageToMarkdown(src, { tables: 'records' });
+    // значение выносится под заголовок, буллеты → md-список, без <br>/«;»
+    expect(markdown).toContain('**Что:**\n**Процесс**\n- раз\n- два');
+    expect(markdown).not.toContain('<br>');
+    expect(markdown).not.toContain('; ');
+  });
+
+  it("tables:'records' — detects the real header row under a colspan title", () => {
+    // Строка «Детали» (colspan=2, th) над настоящей шапкой из двух th
+    const src =
+      '<table>' +
+      '<thead><tr><th colspan="2">Детали</th></tr></thead>' +
+      '<tbody>' +
+      '<tr><th>Что сделано</th><th>Что планируется</th></tr>' +
+      '<tr><td>A</td><td>B</td></tr>' +
+      '</tbody></table>';
+    const { markdown } = storageToMarkdown(src, { tables: 'records' });
+    // ключи — из настоящей шапки, обе колонки на месте; «Детали» → подпись
+    expect(markdown).toContain('**Что сделано:** A');
+    expect(markdown).toContain('**Что планируется:** B');
+    expect(markdown).toContain('**Детали**');
+    expect(markdown).not.toContain('**Детали:** Что сделано'); // не приняли титул за шапку
+  });
+
   it('faithful mode is unchanged (still emits raw html / fences)', () => {
     const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
     expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved

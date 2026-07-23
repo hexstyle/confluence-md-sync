@@ -597,6 +597,8 @@ class Converter {
     grid: string[][];
     aligns: Array<'left' | 'right' | 'center' | 'none'>;
     caption: string;
+    /** Для каждой строки сетки: были ли все её ячейки <th> (строка-заголовок). */
+    headerFlags: boolean[];
   } {
     const trs: XElement[] = [];
     let caption = '';
@@ -610,8 +612,11 @@ class Converter {
 
     const grid: string[][] = [];
     const aligns: Array<'left' | 'right' | 'center' | 'none'> = [];
+    const headerFlags: boolean[] = [];
     trs.forEach((tr, rowIdx) => {
       if (!grid[rowIdx]) grid[rowIdx] = [];
+      const rowCells = elements(tr.children).filter((c) => c.name === 'td' || c.name === 'th');
+      headerFlags[rowIdx] = rowCells.length > 0 && rowCells.every((c) => c.name === 'th');
       let col = 0;
       for (const cell of elements(tr.children)) {
         if (cell.name !== 'td' && cell.name !== 'th') continue;
@@ -641,7 +646,8 @@ class Converter {
       for (let c = 0; c < width; c++) if (r[c] === undefined) r[c] = '';
     }
     while (aligns.length < width) aligns.push('none');
-    return { grid, aligns, caption };
+    while (headerFlags.length < grid.length) headerFlags.push(false);
+    return { grid, aligns, caption, headerFlags };
   }
 
   /** Разворачивает любую таблицу в GFM (сетка с заполнением объединений). */
@@ -660,26 +666,57 @@ class Converter {
   /**
    * tables:'records' — каждую строку тела таблицы разворачивает в запись
    * «**Заголовок:** значение» (пустые ячейки и колонки-филлеры пропускаются),
-   * записи разделяются `---`. Заголовки берутся из первой строки сетки.
+   * записи разделяются `---`.
+   *
+   * Заголовок — ПОСЛЕДНЯЯ из ведущих строк, целиком состоящих из <th>
+   * (строки-титулы над ней, например «Детали» с colspan, уходят в подпись).
+   * Многострочное значение ячейки разворачивается под заголовком: <br> →
+   * перенос строки, буллеты «• » → элементы md-списка.
    */
   private recordsTable(table: XElement): string {
     this.stats.lossy++;
-    const { grid, caption } = this.buildTableGrid(table);
-    const header = grid[0];
+    const { grid, caption, headerFlags } = this.buildTableGrid(table);
+
+    // Ведущие строки-заголовки: последняя из них — ключи, предыдущие — титулы.
+    let headerCount = 0;
+    while (headerCount < grid.length && headerFlags[headerCount]) headerCount++;
+    if (headerCount === 0) headerCount = 1; // нет <th>-шапки → первая строка как ключи
+    if (headerCount >= grid.length) headerCount = 1; // не съедать всю таблицу
+    const header = grid[headerCount - 1];
+    const titleCells = grid
+      .slice(0, headerCount - 1)
+      .flat()
+      .map((c) => c.trim())
+      .filter((c) => c !== '');
+    const title = [caption, ...titleCells].filter((c) => c !== '').join(' — ');
+
     const records: string[] = [];
-    for (const row of grid.slice(1)) {
-      const lines: string[] = [];
+    for (const row of grid.slice(headerCount)) {
+      const fields: string[] = [];
       row.forEach((val, i) => {
         const key = (header[i] ?? '').trim();
-        // В записи <br> из ячейки → «; » (одна строка, без HTML).
-        const value = val.replace(/<br>/g, '; ').trim();
-        if (key !== '' && value !== '') lines.push(`**${key}:** ${value}`);
+        if (key === '') return;
+        // Значение записи — свободный Markdown (не GFM-ячейка): <br> →
+        // настоящий перенос, «• » → элементы списка; многострочное значение
+        // выносим под заголовок.
+        const value = val
+          .replace(/<br>/g, '\n')
+          .replace(/(^|\n)• /g, '$1- ')
+          .trim();
+        if (value === '') return;
+        fields.push(value.includes('\n') ? `**${key}:**\n${value}` : `**${key}:** ${value}`);
       });
-      if (lines.length > 0) records.push(lines.join('\n'));
+      // Одиночные значения — поля подряд (одна строка на поле); если есть
+      // многострочные (списки), разделяем пустой строкой, чтобы md-список не
+      // «склеивался» со следующим заголовком.
+      if (fields.length > 0) {
+        const sep = fields.some((f) => f.includes('\n')) ? '\n\n' : '\n';
+        records.push(fields.join(sep));
+      }
     }
     if (records.length === 0) throw new Unrepresentable();
     const body = records.join('\n\n---\n\n');
-    return caption !== '' ? `**${caption}**\n\n${body}` : body;
+    return title !== '' ? `**${title}**\n\n${body}` : body;
   }
 
   /**
