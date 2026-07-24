@@ -385,6 +385,19 @@ describe('storageToMarkdown readable mode', () => {
     expect(markdown).not.toContain('**Детали:** Что сделано'); // не приняли титул за шапку
   });
 
+  it("tables:'records' — a headerless table falls back to GFM (no <img> as key)", () => {
+    // Таблица без <th>-шапки (пары имя|картинка) — records бессмысленны.
+    const src =
+      '<table><tbody>' +
+      '<tr><td>CustDev</td><td><ac:image ac:height="23"><ri:attachment ri:filename="a.png" /></ac:image></td></tr>' +
+      '<tr><td>DIM</td><td><ac:image ac:height="21"><ri:attachment ri:filename="b.png" /></ac:image></td></tr>' +
+      '</tbody></table>';
+    const { markdown } = storageToMarkdown(src, { attachments: 'local', tables: 'records' });
+    expect(markdown).toMatch(/\| --- \| --- \|/);   // отрендерилось как GFM
+    expect(markdown).not.toMatch(/\*\*<img/);        // картинка не стала ключом
+    expect(markdown).toContain('<img src="attachments/a.png" height="23" alt="a.png" />');
+  });
+
   it('faithful mode is unchanged (still emits raw html / fences)', () => {
     const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
     expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved

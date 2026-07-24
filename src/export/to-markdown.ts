@@ -680,8 +680,10 @@ class Converter {
     // Ведущие строки-заголовки: последняя из них — ключи, предыдущие — титулы.
     let headerCount = 0;
     while (headerCount < grid.length && headerFlags[headerCount]) headerCount++;
-    if (headerCount === 0) headerCount = 1; // нет <th>-шапки → первая строка как ключи
-    if (headerCount >= grid.length) headerCount = 1; // не съедать всю таблицу
+    // Нет <th>-шапки (или вся таблица — заголовки): в записи разворачивать
+    // нечего — первая строка данных стала бы «ключами» (в т.ч. картинка →
+    // ключ `**<img …>:**`). Такую таблицу отдаём как GFM.
+    if (headerCount === 0 || headerCount >= grid.length) return this.readableTable(table);
     const header = grid[headerCount - 1];
     const titleCells = grid
       .slice(0, headerCount - 1)
