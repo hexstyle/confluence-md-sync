@@ -152,7 +152,10 @@ vite.config.ts.timestamp-*
 .windsurf/
 .continue/
 CLAUDE.local.md
+# Exported Confluence pages (may contain private content) — never commit
 /page.md
 /attachments/
 /exported/
 /doc/
+/docs*/
+*.zip
