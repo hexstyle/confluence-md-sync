@@ -172,10 +172,11 @@ export class ConfluenceClient {
     return (await res.json()) as ConfluencePage;
   }
 
+  /** Обновляет страницу и возвращает номер версии из ответа Confluence. */
   async updatePage(
     pageId: string,
     body: { title: string; version: number; storage: string; versionMessage?: string },
-  ): Promise<void> {
+  ): Promise<number> {
     const version: Record<string, unknown> = { number: body.version };
     if (body.versionMessage) version.message = body.versionMessage;
     const res = await fetch(this.url(`/rest/api/content/${pageId}`), {
@@ -192,6 +193,10 @@ export class ConfluenceClient {
       }),
     });
     if (!res.ok) await this.parseError(res, `updatePage(${pageId})`);
+    // Confluence возвращает обновлённый content с актуальным version.number.
+    // Если тела/поля нет — падаем обратно на посланную версию.
+    const data = (await res.json().catch(() => null)) as { version?: { number?: number } } | null;
+    return data?.version?.number ?? body.version;
   }
 
   async deletePage(pageId: string): Promise<void> {

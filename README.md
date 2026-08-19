@@ -18,6 +18,10 @@ npm install -g confluence-md-sync       # as a CLI: `confluence-md-sync …`
 
 - **No history spam** — rendered content is SHA-256-hashed into a content
   property; identical re-publish skips the update, page version doesn't grow.
+- **Drift-proof** — the content property also stores the page version we last
+  wrote. If someone edits or wipes the page in Confluence, the version diverges
+  and the next publish detects the drift and restores the page from markdown
+  (git stays the source of truth) instead of trusting the stale hash.
 - **Attachment dedup** — uploads are tagged `sha256:<hash>`; unchanged files
   are reused. `<file>.src-sha256` sidecars pin dedup to the *source* of
   non-deterministic artifacts (e.g. PNGs rendered by a headless browser).

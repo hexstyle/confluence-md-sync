@@ -122,15 +122,19 @@ export function computeContentHash(storage: string): string {
   return createHash('sha256').update(canonical, 'utf-8').digest('hex');
 }
 
-// Схема записи download-URL в body. Схема 1 подставляла URL из
+// Схема content property. Схема 1 подставляла в body download-URL из
 // _links.download как есть — с ?version=N&modificationDate=…; при ребампе
 // аттача без изменения текста страница оставалась UNCHANGED и продолжала
 // отдавать старую, пиненную версию картинки. Схема 2 подставляет
 // канонический URL без query — Confluence по нему отдаёт последнюю версию
-// аттача, и обновление диаграммы видно без переписывания body. Property со
-// схемой ≠ текущей (в т.ч. без поля scheme) считается устаревшей — страница
-// один раз переписывается каноническими URL.
-const HASH_SCHEME = 2;
+// аттача, и обновление диаграммы видно без переписывания body. Схема 3
+// добавляет pageVersion — номер версии страницы после нашей последней
+// записи; по нему детектится «дрейф» (страницу правили мимо публикатора:
+// version.number вырос, а hash-свойство осталось прежним → без этой проверки
+// испорченная страница никогда бы не восстановилась из markdown). Property со
+// схемой ≠ текущей (в т.ч. без поля scheme/pageVersion) считается устаревшей —
+// hash не сверяется, страница один раз переписывается в новом формате.
+const HASH_SCHEME = 3;
 
 /** Канонический download-URL аттача: без query (?version=N&…). */
 function canonicalDownloadUrl(url: string): string {
@@ -322,26 +326,47 @@ export async function publishPage(
     };
   }
 
-  // 3. Content-hash check. Hash хранится в content property, не в body.
+  // 3. Решение о публикации. Hash и версия нашей последней записи хранятся в
+  //    content property (не в body — normalize storage её бы съел). Страница
+  //    и её версия так и так читаются перед сравнением. Причина публикации
+  //    (для диагностики инцидентов пишется в лог):
+  //      no-property   — свойства нет (мы эту страницу ещё не публиковали);
+  //      hash-mismatch — контент изменился (или свойство устаревшей схемы);
+  //      title-change  — сменился заголовок при том же контенте;
+  //      drift         — страницу правили мимо публикатора (version.number
+  //                      разошёлся с записанным нами) → чиним из markdown.
   const newHash = computeContentHash(storage);
   const [existing, hashProp] = await Promise.all([
     client.getPageStorage(pageId),
     client.getContentProperty(pageId, hashKey),
   ]);
   const title = opts.title ?? existing.title;
-  // Property, писанная другой схемой (или до появления scheme), не считается
-  // совпадением: body мог быть записан с пином версий аттачей — его нужно
-  // один раз переписать каноническими URL.
+
+  // Только свойство текущей схемы несёт доверенные hash + pageVersion.
+  // Устаревшая схема (или без scheme) — «версия неизвестна»: hash не сверяем
+  // (existingHash = null → одна принудительная публикация с записью нового
+  // формата; она же самовосстанавливает ранее испорченные страницы).
   const propValue =
     hashProp && typeof hashProp.value === 'object' && hashProp.value !== null
-      ? (hashProp.value as { hash?: unknown; scheme?: unknown })
+      ? (hashProp.value as { hash?: unknown; scheme?: unknown; pageVersion?: unknown })
       : null;
-  const existingHash =
-    propValue && propValue.scheme === HASH_SCHEME
-      ? ((propValue.hash as string | undefined) ?? null)
+  const isCurrentScheme = propValue !== null && propValue.scheme === HASH_SCHEME;
+  const existingHash = isCurrentScheme
+    ? ((propValue!.hash as string | undefined) ?? null)
+    : null;
+  const publishedVersion =
+    isCurrentScheme && typeof propValue!.pageVersion === 'number'
+      ? (propValue!.pageVersion as number)
       : null;
 
-  if (existingHash === newHash && title === existing.title) {
+  let reason: 'no-property' | 'hash-mismatch' | 'title-change' | 'drift' | null;
+  if (propValue === null) reason = 'no-property';
+  else if (existingHash !== newHash) reason = 'hash-mismatch';
+  else if (title !== existing.title) reason = 'title-change';
+  else if (publishedVersion !== existing.version) reason = 'drift';
+  else reason = null;
+
+  if (reason === null) {
     console.log(
       `[publish] ${pageId} "${title}" → UNCHANGED (hash ${newHash.slice(0, 12)}, v${existing.version})`,
     );
@@ -350,27 +375,33 @@ export async function publishPage(
   }
 
   // 4. Обновление страницы — только после успешного аплоада всех аттачей.
-  const nextVersion = existing.version + 1;
-  await client.updatePage(pageId, {
+  //    Версию берём из ответа Confluence (update инкрементирует её сам).
+  const nextVersion = await client.updatePage(pageId, {
     title,
-    version: nextVersion,
+    version: existing.version + 1,
     storage,
     versionMessage: opts.versionMessage,
   });
 
-  // 5. Запись/обновление content property с новым hash. Делаем ПОСЛЕ
-  //    updatePage чтобы при сбое publish hash не «опередил» реальное содержимое.
+  // 5. Запись/обновление content property: hash + версия, которая ПОЛУЧИЛАСЬ
+  //    после нашей записи. Делаем ПОСЛЕ updatePage, чтобы при сбое publish
+  //    свойство не «опередило» реальное содержимое. pageVersion закрывает
+  //    слепую зону дрейфа (см. HASH_SCHEME).
   await client.setContentProperty(
     pageId,
     hashKey,
-    { hash: newHash, scheme: HASH_SCHEME },
+    { hash: newHash, scheme: HASH_SCHEME, pageVersion: nextVersion },
     hashProp ? hashProp.version : null,
   );
 
   if (opts.labels?.length) await client.addLabels(pageId, opts.labels);
 
+  const detail =
+    reason === 'drift'
+      ? `DRIFT (page v${existing.version} != published v${publishedVersion})`
+      : reason;
   console.log(
-    `[publish] ${pageId} "${title}" → v${nextVersion} (hash ${newHash.slice(0, 12)})`,
+    `[publish] ${pageId} "${title}" → ${detail} → v${nextVersion} (hash ${newHash.slice(0, 12)})`,
   );
 
   return { pageId, title, version: nextVersion, attachments, updated: true, created, storage };
