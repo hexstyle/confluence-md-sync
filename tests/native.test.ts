@@ -166,3 +166,26 @@ describe('details: сложная таблица нормализуется в m
     expect(res.markdown).toContain('| Код | DS-Y |');
   });
 });
+
+describe('readable-режим сохраняет нативные макросы', () => {
+  it('details → ::: properties, панель → admonition (не readableMacro)', () => {
+    const st = toStorage('> [!NOTE] Важно\n> Текст.\n\n::: properties\n| К | З |\n| --- | --- |\n| Код | X |\n:::');
+    const res = storageToMarkdown(st, { mode: 'readable' });
+    expect(res.markdown).toContain('> [!NOTE] Важно');
+    expect(res.markdown).toContain('::: properties');
+    expect(res.markdown).toContain('| Код | X |');
+    expect(res.markdown).not.toContain('_[macro:');
+  });
+});
+
+describe('managedNotice не попадает в экспорт', () => {
+  it('макрос с фиксированным NOTICE_MACRO_ID выбрасывается в обоих режимах', () => {
+    const banner = '<ac:structured-macro ac:name="info" ac:schema-version="1" ac:macro-id="0f0e0d0c-0b0a-4009-8008-000000000001"><ac:rich-text-body><p>Страница управляется из git. <a href="https://x">Редактировать</a>.</p></ac:rich-text-body></ac:structured-macro>';
+    const storage = banner + '<h1>Заголовок</h1><p>Текст.</p>';
+    for (const mode of ['faithful', 'readable'] as const) {
+      const r = storageToMarkdown(storage, { mode });
+      expect(r.markdown).not.toContain('Редактировать');
+      expect(r.markdown).toContain('# Заголовок');
+    }
+  });
+});

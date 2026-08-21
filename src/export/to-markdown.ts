@@ -27,6 +27,7 @@ import { defaultMacroRegistry } from '../macros/index.js';
 import type { MacroParam } from '../macros/types.js';
 import { renderToStorage } from '../markdown/render.js';
 import { compareStorage } from './canonical.js';
+import { NOTICE_MACRO_ID } from '../publish/notice.js';
 import {
   decodeEntities,
   elements,
@@ -351,7 +352,9 @@ class Converter {
     }
     // p / td / th / li / caption и прочие «инлайн-контейнеры» → инлайн.
     // multiline: это свободный поток (не ячейка) — <br> станет переносом.
-    const inline = this.inlineToMd(el.children, { multiline: true }).trim();
+    let inline = '';
+    try { inline = this.inlineToMd(el.children, { multiline: true }).trim(); }
+    catch (e) { if (!(e instanceof Unrepresentable)) throw e; /* → голый текст ниже */ }
     if (inline !== '') return inline.split('\n').map((l) => guardLineStart(l)).join('\n');
     // Совсем ничего не вышло — голый текст (может быть пустым).
     return escapeMdText(textContent(el.children), {}, this.readable).trim();
@@ -373,7 +376,6 @@ class Converter {
   };
 
   private tryNativeMd(el: XElement, name: string): string | null {
-    if (this.readable) return null; // readable-путь остаётся прежним
     const parts = this.macroParts(el);
     if (parts === null) return null;
     const { params, richBody, plainBody } = parts;
@@ -411,7 +413,7 @@ class Converter {
         const norm = this.propertiesGridMd(bodyEls[0]);
         if (norm === null) return null;
         const cand = `::: properties${dp.join('')}\n${norm.md}\n:::`;
-        if (!this.verifyNormalizedDetails(cand, norm.rows)) return null;
+        if (!this.readable && !this.verifyNormalizedDetails(cand, norm.rows)) return null;
         this.stats.normalized++;
         return cand; // канонической эквивалентности нет по построению — верифицирован текст
       }
@@ -441,6 +443,7 @@ class Converter {
     }
 
     if (candidate === null) return null;
+    if (this.readable) return candidate; // readable: без канонической верификации (режим и так lossy)
     return this.verifyMacroMarker(el, candidate) ? candidate : null;
   }
 
@@ -474,6 +477,8 @@ class Converter {
   }
 
   private macroToMd(el: XElement): string {
+    // Баннер managedNotice — артефакт публикации, в md-источник не попадает никогда.
+    if (getAttr(el, 'ac:macro-id') === NOTICE_MACRO_ID) return '';
     const name = getAttr(el, 'ac:name') ?? '';
     const nativeMd = this.tryNativeMd(el, name);
     if (nativeMd !== null) {
@@ -1202,6 +1207,19 @@ class Converter {
   }
 
   private acLinkToMd(el: XElement): string {
+    // readable безотказен: непредставимая ссылка (user-mention, ссылка без цели,
+    // card-appearance) деградирует до своего текста.
+    if (this.readable) {
+      try { return this.acLinkStrict(el); }
+      catch (e) {
+        if (!(e instanceof Unrepresentable)) throw e;
+        return escapeMdText(textContent(el.children), {}, true).trim();
+      }
+    }
+    return this.acLinkStrict(el);
+  }
+
+  private acLinkStrict(el: XElement): string {
     if (el.attrs.length > 0) throw new Unrepresentable();
     const kids = elements(el.children);
     const ref = kids[0];

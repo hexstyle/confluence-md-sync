@@ -40,7 +40,7 @@ export const DEFAULT_MANAGED_NOTICE_LINK_TEXT = 'docs-studio';
 // Фиксированный ac:macro-id: баннер обязан давать БАЙТ-В-БАЙТ одинаковый
 // storage при каждой публикации. Со случайным id (generateMacroId) content-
 // hash менялся бы каждый раз → страница вечно считалась бы изменённой.
-const NOTICE_MACRO_ID = '0f0e0d0c-0b0a-4009-8008-000000000001';
+export const NOTICE_MACRO_ID = '0f0e0d0c-0b0a-4009-8008-000000000001';
 
 /** Собирает `<a href>`-ссылку на источник. */
 function noticeLink(opts: ManagedNoticeOptions): string {
