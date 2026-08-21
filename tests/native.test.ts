@@ -128,3 +128,41 @@ describe('nativeMacroList', () => {
     expect(names).toContain('note');
   });
 });
+
+describe('details: сложная таблица нормализуется в md-таблицу', () => {
+  it('th-строки, colgroup и стили → ::: properties с GFM-таблицей', () => {
+    const storage =
+      '<ac:structured-macro ac:name="details" ac:schema-version="1" ac:macro-id="m1">' +
+      '<ac:rich-text-body>' +
+      '<table class="relative-table" style="width: 60%;"><colgroup><col style="width:20%;" /><col /></colgroup><tbody>' +
+      '<tr><th scope="row">Название</th><td><span style="color: rgb(0,0,0);">Dataset X</span></td></tr>' +
+      '<tr><th>Код</th><td><p>DS-X</p></td></tr>' +
+      '<tr><th>Версия</th><td>1</td></tr>' +
+      '</tbody></table></ac:rich-text-body></ac:structured-macro>';
+    const res = storageToMarkdown(storage);
+    expect(res.stats.normalized).toBe(1);
+    expect(res.markdown).toContain('::: properties');
+    expect(res.markdown).toContain('| Поле | Значение |');
+    expect(res.markdown).toContain('| Название | Dataset X |');
+    expect(res.markdown).toContain('| Код | DS-X |');
+    expect(res.markdown).not.toContain('confluence-storage');
+    // Обратный рендер даёт настоящий details, повторный экспорт уже строгий (без потерь).
+    const st2 = toStorage(res.markdown);
+    expect(st2).toContain('ac:name="details"');
+    const res2 = storageToMarkdown(st2);
+    expect(res2.stats.normalized).toBe(0);
+    expect(res2.markdown.trim()).toBe(res.markdown.trim());
+  });
+
+  it('нумерационная колонка Confluence отбрасывается', () => {
+    const storage =
+      '<ac:structured-macro ac:name="details" ac:macro-id="m2"><ac:rich-text-body>' +
+      '<table><tbody>' +
+      '<tr><td class="numberingColumn"><br /></td><th>Код</th><td>DS-Y</td></tr>' +
+      '<tr><td class="numberingColumn"><br /></td><th>Версия</th><td>2</td></tr>' +
+      '</tbody></table></ac:rich-text-body></ac:structured-macro>';
+    const res = storageToMarkdown(storage);
+    expect(res.stats.normalized).toBe(1);
+    expect(res.markdown).toContain('| Код | DS-Y |');
+  });
+});

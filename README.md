@@ -327,7 +327,7 @@ that doesn't fit falls back to markers/fenced blocks automatically.
 | Macro | Markdown |
 | --- | --- |
 | `info` / `note` / `warning` / `tip` | `> [!INFO] Title?` + quoted body (GitHub-style admonition) |
-| `details` (Page Properties) | `::: properties [id=…] [hidden=true]` + md-table + `:::` |
+| `details` (Page Properties) | `::: properties [id=…] [hidden=true]` + md-table + `:::` — complex Confluence tables are normalized to GFM on export (styling dropped, cell text verified; `stats.normalized`) |
 | `expand` | `::: expand Title` + body + `:::` |
 | `panel` | `::: panel title=… borderColor=…` + body + `:::` |
 | `toc` | `{{toc}}` / `{{toc:maxLevel=3}}` |

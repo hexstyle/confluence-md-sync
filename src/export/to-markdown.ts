@@ -83,6 +83,8 @@ export interface StorageToMarkdownResult {
     lossy: number;
     /** Макросы, выраженные нативным md-синтаксисом (панели, ::: …, {{…}}). */
     native: number;
+    /** details, чья таблица нормализована в GFM (оформление потеряно, текст сверен). */
+    normalized: number;
   };
 }
 
@@ -155,7 +157,7 @@ interface ConverterOpts {
 class Converter {
   images = new Set<string>();
   files = new Set<string>();
-  stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0, native: 0 };
+  stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0, native: 0, normalized: 0 };
 
   private readable: boolean;
   private localFiles: boolean;
@@ -396,12 +398,23 @@ class Converter {
       const bodyEls = elements(richBody.children);
       const nonWs = richBody.children.filter((n) => !(n.kind === 'text' && /^[ \t\r\n]*$/.test(n.raw)));
       if (bodyEls.length !== 1 || nonWs.length !== 1 || bodyEls[0].name !== 'table') return null;
-      let tableMd: string;
-      try { tableMd = this.tableToMd(bodyEls[0]); }
-      catch (e) { if (e instanceof Unrepresentable) return null; throw e; }
       const dp = [...pmap.entries()].map(([k, v]) => (oneline(v) && !/["\s]/.test(v) ? ` ${k}=${v}` : null));
       if (dp.some((x) => x === null)) return null;
-      candidate = `::: properties${dp.join('')}\n${tableMd}\n:::`;
+      let tableMd: string | null = null;
+      try { tableMd = this.tableToMd(bodyEls[0]); }
+      catch (e) { if (!(e instanceof Unrepresentable)) throw e; }
+      if (tableMd !== null) {
+        candidate = `::: properties${dp.join('')}\n${tableMd}\n:::`;
+      } else {
+        // «Свойства страницы» обязаны жить md-таблицей: сложную таблицу
+        // нормализуем в GFM (оформление теряется, текст сверяется рендером).
+        const norm = this.propertiesGridMd(bodyEls[0]);
+        if (norm === null) return null;
+        const cand = `::: properties${dp.join('')}\n${norm.md}\n:::`;
+        if (!this.verifyNormalizedDetails(cand, norm.rows)) return null;
+        this.stats.normalized++;
+        return cand; // канонической эквивалентности нет по построению — верифицирован текст
+      }
     } else if (name === 'expand' && richBody !== null) {
       if (![...pmap.keys()].every((k) => k === 'title')) return null;
       const title = pmap.get('title');
@@ -549,6 +562,94 @@ class Converter {
   }
 
   /** Маркер → render-конвейер → канонически равен исходному макросу? */
+  /** Таблица details → нормализованный GFM: пустые колонки (нумерация) отброшены,
+   * заголовок синтезируется («Поле|Значение» для двух колонок). null — не таблица. */
+  /** Убирает ac:/ri:-вставки без текста (упоминания пользователей, эмодзи):
+   * в md им нечем быть, а их присутствие роняло flatten всей ячейки. */
+  private stripEmptyNamespaced(nodes: XNode[]): XNode[] {
+    const out: XNode[] = [];
+    for (const n of nodes) {
+      if (n.kind === 'el') {
+        if (n.name.includes(':') && textContent(n.children).trim() === '') continue;
+        out.push({ ...n, children: this.stripEmptyNamespaced(n.children) });
+      } else out.push(n);
+    }
+    return out;
+  }
+
+  /** Таблица details → нормализованный GFM: пустые колонки (нумерация) отброшены,
+   * заголовок синтезируется («Поле|Значение» для двух колонок). Ячейки — readable-
+   * flatten; несовместимые вставки (напр. упоминание пользователя) — в голый текст.
+   * null — не таблица/пусто. */
+  private propertiesGridMd(table: XElement): { md: string; rows: string[][] } | null {
+    const saved = this.readable;
+    this.readable = true;
+    try {
+      const trs: XElement[] = [];
+      for (const child of elements(table.children)) {
+        if (['thead', 'tbody', 'tfoot'].includes(child.name)) {
+          for (const tr of elements(child.children)) if (tr.name === 'tr') trs.push(tr);
+        } else if (child.name === 'tr') trs.push(child);
+      }
+      if (trs.length === 0) return null;
+      const grid: string[][] = trs.map((tr) =>
+        elements(tr.children)
+          .filter((c) => c.name === 'td' || c.name === 'th')
+          .map((c) => {
+            let flat: string;
+            try { flat = this.cellFlatten(this.stripEmptyNamespaced(c.children)); }
+            catch (e) { if (!(e instanceof Unrepresentable)) throw e; flat = textContent(c.children); }
+            return flat.replace(/\s+/g, ' ').trim();
+          }));
+      const cols = Math.max(...grid.map((r) => r.length));
+      const norm = grid.map((r) => Array.from({ length: cols }, (_, i) => r[i] ?? ''));
+      const keep = Array.from({ length: cols }, (_, i) => norm.some((r) => r[i] !== ''));
+      const rows = norm.map((r) => r.filter((_, i) => keep[i])).filter((r) => r.some((c) => c !== ''));
+      const width = rows[0]?.length ?? 0;
+      if (width === 0 || rows.some((r) => r.length !== width)) return null;
+      const esc = (s: string) => s.replace(/\|/g, '\\|');
+      const header = width === 2 ? ['Поле', 'Значение'] : rows[0].map(() => ' ');
+      const line = (cells: string[]) => `| ${cells.map(esc).join(' | ')} |`;
+      const md = [line(header), `| ${header.map(() => '---').join(' | ')} |`, ...rows.map(line)].join('\n');
+      return { md, rows };
+    } finally {
+      this.readable = saved;
+    }
+  }
+
+  /** Нормализованные details: рендерим кандидата и сверяем ТЕКСТ ячеек с исходным. */
+  private verifyNormalizedDetails(candidate: string, rows: string[][]): boolean {
+    try {
+      let storage = renderToStorage(
+        candidate,
+        { images: new Map(), files: new Map() },
+        { imageStyle: 'attachment', fileStyle: 'attachment', linkify: false },
+      );
+      storage = processMacros(storage, this.registry).toString();
+      let renderedTable: XElement | null = null;
+      const walk = (ns: XNode[]): void => {
+        for (const n of elements(ns)) {
+          if (renderedTable) return;
+          if (n.name === 'table') { renderedTable = n; return; }
+          walk(n.children);
+        }
+      };
+      walk(parseStorage(storage));
+      if (!renderedTable) return false;
+      const backNorm = this.propertiesGridMd(renderedTable);
+      if (backNorm === null) return false;
+      const back = backNorm.rows;
+      const width = rows[0]?.length ?? 0;
+      const headerIsSynth = back.length > 0 &&
+        (width === 2 ? back[0][0] === 'Поле' && back[0][1] === 'Значение' : back[0].every((c) => c === ''));
+      const body = headerIsSynth ? back.slice(1) : back;
+      if (body.length !== rows.length) return false;
+      return body.every((r, i) => r.length === rows[i].length && r.every((c, j) => c === rows[i][j]));
+    } catch {
+      return false;
+    }
+  }
+
   private verifyMacroMarker(el: XElement, markerMd: string): boolean {
     try {
       let storage = renderToStorage(
