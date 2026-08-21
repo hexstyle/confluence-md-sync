@@ -166,3 +166,42 @@ describe('publishPage drift guard (pageVersion in content property)', () => {
     expect(state.puts).toBe(1);
   });
 });
+
+describe('publishPage managed-notice banner', () => {
+  const notice = { linkUrl: 'https://studio.example/doc/123', panel: 'warning' as const };
+
+  it('injects the banner into storage but never into the markdown source', async () => {
+    const res = await pub({ managedNotice: notice });
+    expect(res.storage).toContain('ac:name="warning"');
+    expect(res.storage).toContain('href="https://studio.example/doc/123"');
+    // Баннер лёг в самое начало (position default = top).
+    expect(res.storage.indexOf('structured-macro')).toBeLessThan(res.storage.indexOf('Hello'));
+    // В markdown-источнике примечания нет.
+    expect(MD).not.toContain('studio.example');
+    expect(MD).not.toContain('structured-macro');
+  });
+
+  it('is idempotent — same notice + content re-publishes as UNCHANGED', async () => {
+    const first = await pub({ managedNotice: notice });
+    expect(first.updated).toBe(true);
+    const second = await pub({ managedNotice: notice });
+    expect(second.updated).toBe(false); // детерминированный баннер → тот же hash
+    expect(state.puts).toBe(1);
+  });
+
+  it('re-publishes when the notice changes (hash-mismatch)', async () => {
+    await pub({ managedNotice: notice });
+    const changed = await pub({ managedNotice: { ...notice, linkUrl: 'https://studio.example/doc/999' } });
+    expect(changed.updated).toBe(true);
+    expect(state.puts).toBe(2);
+  });
+
+  it('places the banner at the bottom when position is "bottom"', async () => {
+    const res = await pub({ managedNotice: { ...notice, position: 'bottom' } });
+    expect(res.storage.indexOf('Hello')).toBeLessThan(res.storage.indexOf('structured-macro'));
+  });
+
+  it('fails fast when linkUrl is missing', async () => {
+    await expect(pub({ managedNotice: { linkUrl: '' } })).rejects.toThrow(/managedNotice\.linkUrl is required/);
+  });
+});

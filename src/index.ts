@@ -84,6 +84,13 @@ export {
   type TableData,
 } from './publish/publish.js';
 export {
+  buildManagedNotice,
+  applyManagedNotice,
+  DEFAULT_MANAGED_NOTICE_TEXT,
+  DEFAULT_MANAGED_NOTICE_LINK_TEXT,
+  type ManagedNoticeOptions,
+} from './publish/notice.js';
+export {
   isHttpUrl,
   remoteFilename,
   isSameConfluenceOrigin,

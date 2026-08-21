@@ -1,5 +1,6 @@
 import { basename, join } from 'node:path';
 import { publishPage, type PublishPageOptions, type PublishPageResult } from './publish.js';
+import type { ManagedNoticeOptions } from './notice.js';
 import { loadConfigFromEnv, type ConfluenceConfig, type LoadConfigOptions } from '../client/config.js';
 
 export type Here = (relativePath: string) => string;
@@ -20,6 +21,12 @@ export interface RunPublishOptions {
    * соответствует компоновке репо `<repo>/docs/<set>` + `<repo>/build/<set>`.
    */
   buildDir?: string;
+  /**
+   * Баннер «страница управляется извне» по умолчанию для ВСЕХ страниц прогона
+   * (docs-studio). Значение, заданное у конкретной страницы в `managedNotice`,
+   * имеет приоритет. См. {@link ManagedNoticeOptions}.
+   */
+  managedNotice?: ManagedNoticeOptions;
 }
 
 /**
@@ -55,7 +62,12 @@ export async function runPublish(
     const pages = typeof plan === 'function' ? await plan(here, build) : plan;
     const results: PublishPageResult[] = [];
     for (const page of pages) {
-      results.push(await publishPage(page, cfg));
+      // Дефолтный баннер прогона применяется, только если страница его не задала.
+      const merged =
+        opts.managedNotice && page.managedNotice === undefined
+          ? { ...page, managedNotice: opts.managedNotice }
+          : page;
+      results.push(await publishPage(merged, cfg));
     }
     return results;
   } catch (err: unknown) {

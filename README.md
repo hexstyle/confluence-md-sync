@@ -25,6 +25,9 @@ npm install -g confluence-md-sync       # as a CLI: `confluence-md-sync …`
 - **Attachment dedup** — uploads are tagged `sha256:<hash>`; unchanged files
   are reused. `<file>.src-sha256` sidecars pin dedup to the *source* of
   non-deterministic artifacts (e.g. PNGs rendered by a headless browser).
+- **Managed-page banner** — optionally stamp a “edit this in <source>” notice
+  (info/warning panel with a link) into the page; injected into storage only,
+  never into the markdown source. See *Managed-page banner*.
 - **Fail before write** — placeholders, files and macro markers are validated
   up front; Confluence is never touched on a broken input.
 - **Pluggable macros** — built-in `core` + `table-filter` plugins, extend
@@ -120,6 +123,34 @@ await publishPage({
   downloadDir: 'build',   // optional; default: temp dir per run
 }, cfg);
 ```
+
+### Managed-page banner
+
+When a page is generated from an external source (e.g. docs-studio) and users
+should not edit it in Confluence, add a `managedNotice`. It is injected into the
+**storage** at publish time — never into the markdown source, so export and
+round-trip stay clean, and git remains the single source of truth. The banner is
+deterministic (fixed macro id), so it doesn't break the no-history-spam hash skip.
+
+```ts
+await publishPage({
+  pageId,
+  markdownPath,
+  managedNotice: {
+    linkUrl: 'https://studio.example/doc/123',  // required
+    // everything below is optional:
+    linkText: 'постановка в docs-studio',       // default: 'docs-studio'
+    text: 'Правьте страницу в {link}. Здесь только чтение — правки будут перезаписаны.',
+    panel: 'warning',                           // info | note | warning | tip (default: info)
+    position: 'top',                            // 'top' (default) | 'bottom'
+  },
+}, cfg);
+```
+
+`{link}` in `text` is replaced by the link; omit it and the link is appended.
+The presence of `managedNotice` turns the banner on — leave it out and no notice
+is added. To apply one banner to every page of a CI plan, pass `managedNotice`
+to `runPublish(dir, plan, { managedNotice })`; a per-page value overrides it.
 
 ## BPMN diagrams out of the box
 

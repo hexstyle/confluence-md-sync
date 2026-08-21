@@ -14,6 +14,7 @@ import {
   type RenderStorageOptions,
 } from '../markdown/render.js';
 import { validateMarkdown } from '../markdown/validate.js';
+import { applyManagedNotice, type ManagedNoticeOptions } from './notice.js';
 import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { defaultMacroRegistry } from '../macros/index.js';
@@ -60,6 +61,13 @@ export interface PublishPageOptions {
   labels?: string[];
   /** Комментарий к версии страницы. */
   versionMessage?: string;
+  /**
+   * Примечание «страница управляется извне» (docs-studio). Вставляется в
+   * storage при публикации, НО не в markdown-источник — экспорт/round-trip
+   * его не увидят. Наличие опции включает баннер; настраиваются текст, ссылка,
+   * её текст, тип панели и позиция (шапка/низ). См. {@link ManagedNoticeOptions}.
+   */
+  managedNotice?: ManagedNoticeOptions;
   /** Свой реестр макросов (default: встроенные core + table-filter). */
   registry?: MacroRegistry;
   /**
@@ -187,6 +195,11 @@ export async function publishPage(
   const registry = opts.registry ?? defaultMacroRegistry;
   const hashKey = opts.hashPropertyKey ?? DEFAULT_HASH_PROPERTY_KEY;
 
+  // Fail fast: баннер без ссылки бессмыслен — падаем до любого сетевого I/O.
+  if (opts.managedNotice && !opts.managedNotice.linkUrl) {
+    throw new Error('publishPage: managedNotice.linkUrl is required');
+  }
+
   // 0a. Удалённые источники: http(s)://-элементы в images[]/files[]
   //     заменяются на локальный путь в downloadDir с именем из URL — дальше
   //     конвейер (валидация, BPMN, аплоад) работает с обычными путями.
@@ -312,6 +325,14 @@ export async function publishPage(
 
   // 2.5. Преобразование маркеров макросов в XHTML.
   storage = processMacros(storage, registry).toString();
+
+  // 2.6. Баннер «страница управляется извне». Вставляется здесь, в storage —
+  //   не в markdown — поэтому источник/round-trip его не содержат. Баннер
+  //   детерминирован (фиксированный macro-id), значит попадает в content-hash
+  //   стабильно и не ломает идемпотентность.
+  if (opts.managedNotice) {
+    storage = applyManagedNotice(storage, opts.managedNotice);
+  }
 
   if (opts.dryRun) {
     console.log(`[publish] dry-run: page ${pageId} rendered OK (${storage.length} bytes of storage)`);
