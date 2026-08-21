@@ -202,3 +202,16 @@ describe('managedNotice не попадает в экспорт', () => {
     }
   });
 });
+
+describe('details: ссылки в ячейках свойств не теряются', () => {
+  it('ac:link → ri:page без текста тела остаётся {{page:…}} при нормализации', () => {
+    const storage =
+      '<ac:structured-macro ac:name="details" ac:macro-id="m3"><ac:rich-text-body>' +
+      '<table class="wrapped"><tbody>' +
+      '<tr><th>Код системы</th><td><ac:link><ri:page ri:content-title="Паспорт SYS_X" /></ac:link></td></tr>' +
+      '</tbody></table></ac:rich-text-body></ac:structured-macro>';
+    const res = storageToMarkdown(storage, { mode: 'readable' });
+    expect(res.markdown).toContain('{{page:Паспорт SYS_X}}');
+    expect(res.markdown).not.toMatch(/\| Код системы \|\s*\|/);
+  });
+});

@@ -601,9 +601,16 @@ class Converter {
         elements(tr.children)
           .filter((c) => c.name === 'td' || c.name === 'th')
           .map((c) => {
+            // Сначала честная конвертация (page-ссылки → {{page:…}}); стрип пустых
+            // ac:/ri:-вставок — только если она не удалась (иначе теряются ссылки
+            // без текста тела: у них подпись — заголовок страницы).
             let flat: string;
-            try { flat = this.cellFlatten(this.stripEmptyNamespaced(c.children)); }
-            catch (e) { if (!(e instanceof Unrepresentable)) throw e; flat = textContent(c.children); }
+            try { flat = this.cellFlatten(c.children); }
+            catch (e) {
+              if (!(e instanceof Unrepresentable)) throw e;
+              try { flat = this.cellFlatten(this.stripEmptyNamespaced(c.children)); }
+              catch (e2) { if (!(e2 instanceof Unrepresentable)) throw e2; flat = textContent(c.children); }
+            }
             return flat.replace(/\s+/g, ' ').trim();
           }));
       const cols = Math.max(...grid.map((r) => r.length));
