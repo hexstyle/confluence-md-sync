@@ -1433,8 +1433,32 @@ function escapeMdText(raw: string, ctx: InlineCtx, readable = false): string {
   return out;
 }
 
+const ESCAPE_SPECIALS = '\\`*[]{}~';
+// Буква/цифра любого алфавита (вкл. кириллицу). Внутрисловное `_` между двумя
+// такими символами по CommonMark не открывает и не закрывает акцент, поэтому
+// экранировать его НЕ нужно.
+const WORDCHAR_RE = /[\p{L}\p{N}]/u;
+
 function escapePlain(s: string, _ctx: InlineCtx, readable = false): string {
-  const esc = s.replace(/[\\`*_[\]{}~]/g, (c) => '\\' + c);
+  let esc = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '_') {
+      // Экранируем `_` только на границе слова (snake_case НЕ трогаем — иначе
+      // выходят уродливые `BA\_M1\_…`). Внутрисловное `_` литерально и в
+      // CommonMark, round-trip остаётся канонически эквивалентным.
+      const prev = s[i - 1];
+      const next = s[i + 1];
+      const intraword =
+        prev !== undefined && next !== undefined &&
+        WORDCHAR_RE.test(prev) && WORDCHAR_RE.test(next);
+      esc += intraword ? '_' : '\\_';
+    } else if (ESCAPE_SPECIALS.includes(c)) {
+      esc += '\\' + c;
+    } else {
+      esc += c;
+    }
+  }
   // Пайпы здесь НЕ трогаем — они экранируются один раз на границе ячейки
   // (cellMd / readableTable), иначе плейсхолдеры {{img:…|…}} двоились бы.
   // readable: неразрывный пробел → обычный; faithful: → entity (переживает

@@ -96,11 +96,24 @@ describe('round-trip (storage → нативный md)', () => {
     expect(native).toBeGreaterThan(0);
   });
 
-  it('подчёркивания в ячейках свойств экранируются, но storage стабилен', () => {
+  it('внутрисловное подчёркивание в ячейках не экранируется, storage стабилен', () => {
     const md = '::: properties\n| К | З |\n| --- | --- |\n| Код | DS_X |\n:::';
     const first = roundTrip(md);
-    expect(first.back).toContain('DS\\_X');
+    // Внутрисловное `_` — литерал по CommonMark, обратный слэш не нужен.
+    expect(first.back).toContain('DS_X');
+    expect(first.back).not.toContain('DS\\_X');
     // Повторный цикл literal-стабилен, storage канонически совпадает.
+    const second = roundTrip(first.back);
+    expect(second.back.trim()).toBe(first.back.trim());
+    expect(compareStorage(toStorage(first.back), toStorage(md)).equal).toBe(true);
+  });
+
+  it('граничное подчёркивание в ячейках экранируется (защита от акцента)', () => {
+    // `_` у пробелов — не курсив, а литерал; на границе слова его надо
+    // экранировать, чтобы при повторном рендере он не открыл акцент.
+    const md = '::: properties\n| К | З |\n| --- | --- |\n| Код | a _ b |\n:::';
+    const first = roundTrip(md);
+    expect(first.back).toContain('a \\_ b');
     const second = roundTrip(first.back);
     expect(second.back.trim()).toBe(first.back.trim());
     expect(compareStorage(toStorage(first.back), toStorage(md)).equal).toBe(true);
