@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import { nativeToMarkers } from './native.js';
 
 // xhtmlOut: true — Confluence storage format = XHTML, void-элементы
 // (<hr/>, <br/>, <img/>) обязаны быть самозакрывающимися.
@@ -145,6 +146,9 @@ export function renderToStorage(
   urls: AttachmentUrls,
   opts: RenderStorageOptions = {},
 ): string {
+  // Нативный md-синтаксис макросов (панели, ::: properties, {{toc}} …) —
+  // сахар над маркерами: переписываем до markdown-it (см. native.ts).
+  markdown = nativeToMarkers(markdown);
   const renderer = opts.linkify === false ? mdNoLinkify : md;
   let html = renderer.render(markdown);
 

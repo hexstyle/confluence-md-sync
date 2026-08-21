@@ -318,6 +318,31 @@ const rows = readCsv(decodeText(await page.getAttachment('data.csv')));
 
 ## Macros
 
+### Native Markdown syntax (0.8.0+)
+
+Popular macros are written (and exported back) as plain Markdown — no comment
+markers, no raw XHTML. Round-trip is verified canonically per macro; anything
+that doesn't fit falls back to markers/fenced blocks automatically.
+
+| Macro | Markdown |
+| --- | --- |
+| `info` / `note` / `warning` / `tip` | `> [!INFO] Title?` + quoted body (GitHub-style admonition) |
+| `details` (Page Properties) | `::: properties [id=…] [hidden=true]` + md-table + `:::` |
+| `expand` | `::: expand Title` + body + `:::` |
+| `panel` | `::: panel title=… borderColor=…` + body + `:::` |
+| `toc` | `{{toc}}` / `{{toc:maxLevel=3}}` |
+| `children` | `{{children}}` / `{{children:depth=2}}` |
+| `jira` | `{{jira:KEY-1}}` / `{{jira:jql=project = X\|maximumIssues=20}}` |
+| `status` | `{{status:Текст\|colour=Green\|subtle=true}}` |
+| `anchor` | `{{anchor:name}}` |
+| `detailssummary` (Page Properties Report) | `{{properties-report:cql=…\|firstcolumn=…}}` |
+
+Inside fenced code blocks the syntax is left untouched. The machine-readable
+list is exported as `nativeMacroList()`; the md→markers pass is
+`nativeToMarkers()` (runs automatically inside `renderToStorage`).
+
+### Marker builders
+
 Builders return `Markdown` with comment markers; markers become
 `<ac:structured-macro>` after rendering (nested macros resolve inner-first):
 

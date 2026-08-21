@@ -81,6 +81,8 @@ export interface StorageToMarkdownResult {
     rawHtml: number;
     /** readable-режим: сколько узлов конвертировано с потерей оформления. */
     lossy: number;
+    /** Макросы, выраженные нативным md-синтаксисом (панели, ::: …, {{…}}). */
+    native: number;
   };
 }
 
@@ -153,7 +155,7 @@ interface ConverterOpts {
 class Converter {
   images = new Set<string>();
   files = new Set<string>();
-  stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0 };
+  stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0, native: 0 };
 
   private readable: boolean;
   private localFiles: boolean;
@@ -355,8 +357,116 @@ class Converter {
 
   // ── Макросы ──────────────────────────────────────────────────────────
 
+
+  // ── Нативный md-синтаксис (native.ts): панели, ::: properties/expand/panel,
+  // {{toc}}/{{children}}/{{jira}}/{{status}}/{{anchor}}/{{properties-report}}.
+  // Каждый кандидат проверяется рендером и канонической сверкой (как маркеры).
+
+  private static readonly NATIVE_ADMONITION_TAG: Record<string, string> = {
+    info: 'INFO', note: 'NOTE', warning: 'WARNING', tip: 'TIP',
+  };
+  private static readonly NATIVE_PLACEHOLDER_NAME: Record<string, string> = {
+    toc: 'toc', children: 'children', jira: 'jira', status: 'status',
+    anchor: 'anchor', detailssummary: 'properties-report',
+  };
+
+  private tryNativeMd(el: XElement, name: string): string | null {
+    if (this.readable) return null; // readable-путь остаётся прежним
+    const parts = this.macroParts(el);
+    if (parts === null) return null;
+    const { params, richBody, plainBody } = parts;
+    if (plainBody !== null) return null;
+    const pmap = new Map(params.map((p) => [p.name, p.value]));
+    const oneline = (v: string | undefined) => v !== undefined && !/[\n|{}]/.test(v) && !v.includes('}}');
+
+    let candidate: string | null = null;
+    const tag = Converter.NATIVE_ADMONITION_TAG[name];
+    if (tag && richBody !== null) {
+      // Панель: параметры — только title.
+      if (![...pmap.keys()].every((k) => k === 'title')) return null;
+      const title = pmap.get('title');
+      if (title !== undefined && (!oneline(title) || /\[|\]/.test(title))) return null;
+      const bodyMd = this.bodyMd(richBody);
+      if (bodyMd === null || bodyMd.trim() === '') return null;
+      const quoted = bodyMd.split('\n').map((l) => (l === '' ? '>' : `> ${l}`)).join('\n');
+      candidate = `> [!${tag}]${title ? ' ' + title : ''}\n${quoted}`;
+    } else if (name === 'details' && richBody !== null) {
+      // «Свойства страницы»: параметры id/hidden, тело — простая md-таблица.
+      if (![...pmap.keys()].every((k) => k === 'id' || k === 'hidden')) return null;
+      const bodyEls = elements(richBody.children);
+      const nonWs = richBody.children.filter((n) => !(n.kind === 'text' && /^[ \t\r\n]*$/.test(n.raw)));
+      if (bodyEls.length !== 1 || nonWs.length !== 1 || bodyEls[0].name !== 'table') return null;
+      let tableMd: string;
+      try { tableMd = this.tableToMd(bodyEls[0]); }
+      catch (e) { if (e instanceof Unrepresentable) return null; throw e; }
+      const dp = [...pmap.entries()].map(([k, v]) => (oneline(v) && !/["\s]/.test(v) ? ` ${k}=${v}` : null));
+      if (dp.some((x) => x === null)) return null;
+      candidate = `::: properties${dp.join('')}\n${tableMd}\n:::`;
+    } else if (name === 'expand' && richBody !== null) {
+      if (![...pmap.keys()].every((k) => k === 'title')) return null;
+      const title = pmap.get('title');
+      if (title !== undefined && (!oneline(title) || /=|"/.test(title))) return null;
+      const bodyMd = this.bodyMd(richBody);
+      if (bodyMd === null) return null;
+      candidate = `::: expand${title ? ' ' + title : ''}\n${bodyMd}\n:::`;
+    } else if (Converter.NATIVE_PLACEHOLDER_NAME[name] && richBody === null) {
+      // Bodyless-плейсхолдеры. Части значений с | или }} не выразить — маркер.
+      const ph = Converter.NATIVE_PLACEHOLDER_NAME[name];
+      const attrs: string[] = [];
+      let head = '';
+      for (const p of params) {
+        if (!oneline(p.value) || p.value.includes('|')) return null;
+        if (name === 'jira' && p.name === 'key' && head === '') { head = p.value; continue; }
+        if (name === 'status' && p.name === 'title' && head === '') { head = p.value; continue; }
+        if (name === 'anchor' && (p.name === 'name' || p.name === '') && head === '') { head = p.value; continue; }
+        const attrName = name === 'jira' && p.name === 'jqlQuery' ? 'jql' : p.name;
+        if (!/^[A-Za-z-]+$/.test(attrName)) return null;
+        attrs.push(`${attrName}=${p.value}`);
+      }
+      const inner = [head, ...attrs].filter((s, i) => s !== '' || i > 0).join('|');
+      candidate = inner === '' ? `{{${ph}}}` : `{{${ph}:${inner}}}`;
+    }
+
+    if (candidate === null) return null;
+    return this.verifyMacroMarker(el, candidate) ? candidate : null;
+  }
+
+  /** Разбирает macro-элемент на параметры и тела; null — посторонние дети. */
+  private macroParts(el: XElement): { params: MacroParam[]; richBody: XElement | null; plainBody: XElement | null } | null {
+    const params: MacroParam[] = [];
+    let richBody: XElement | null = null;
+    let plainBody: XElement | null = null;
+    for (const child of elements(el.children)) {
+      if (child.name === 'ac:parameter') {
+        const pname = getAttr(child, 'ac:name') ?? '';
+        params.push({ name: pname, value: decodeEntities(textContent(child.children)) });
+      } else if (child.name === 'ac:rich-text-body') richBody = child;
+      else if (child.name === 'ac:plain-text-body') plainBody = child;
+      else return null;
+    }
+    return { params, richBody, plainBody };
+  }
+
+  /** Тело макроса → md; null, если не легло без потерь. */
+  private bodyMd(richBody: XElement): string | null {
+    const before = { images: new Set(this.images), files: new Set(this.files) };
+    try {
+      return this.blocksToMd(richBody.children).trimEnd();
+    } catch (e) {
+      if (!(e instanceof Unrepresentable)) throw e;
+      this.images = before.images;
+      this.files = before.files;
+      return null;
+    }
+  }
+
   private macroToMd(el: XElement): string {
     const name = getAttr(el, 'ac:name') ?? '';
+    const nativeMd = this.tryNativeMd(el, name);
+    if (nativeMd !== null) {
+      this.stats.native++;
+      return nativeMd;
+    }
     const markerMd = this.tryMacroMarker(el, name);
     if (markerMd !== null) {
       this.stats.markers++;

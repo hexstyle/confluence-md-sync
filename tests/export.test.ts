@@ -130,9 +130,10 @@ describe('storageToMarkdown', () => {
       '<ac:parameter ac:name="title">Детали</ac:parameter>' +
       '<ac:rich-text-body><p>внутри <strong>жирный</strong></p></ac:rich-text-body></ac:structured-macro>',
     );
-    expect(markdown).toContain('<!-- MACRO:start:expand:title=Детали -->');
+    // С 0.8.0 expand выражается нативной директивой (маркер — только fallback).
+    expect(markdown).toContain('::: expand Детали');
     expect(markdown).toContain('внутри **жирный**');
-    expect(stats.markers).toBe(1);
+    expect(stats.native).toBe(1);
   });
 
   it('converts unknown macros to markers via registry passthrough', () => {

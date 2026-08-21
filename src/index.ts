@@ -32,6 +32,13 @@ export {
   type RenderStorageOptions,
 } from './markdown/render.js';
 export { validateMarkdown, MarkdownValidationError, type ValidateOptions } from './markdown/validate.js';
+export {
+  nativeToMarkers,
+  nativeMacroList,
+  NATIVE_ADMONITIONS,
+  NATIVE_DIRECTIVES,
+  NATIVE_PLACEHOLDERS,
+} from './markdown/native.js';
 
 // Macros (pluggable)
 export * from './macros/index.js';
