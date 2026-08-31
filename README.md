@@ -370,6 +370,12 @@ macros.tableExcerptInclude('name', 'Source Page');
 macros.tableExcerpt(md, 'name', /* hide */ true);
 macros.tableFilter(md, { totalrow: ',,Sum' });
 macros.tableJoiner(includesMd, "SELECT * FROM T1 LEFT JOIN T2 ON …");  // multiline SQL ok
+
+// CSV Table app — render a table from an attached CSV (page body stays tiny;
+// ideal for large datasets that would blow the Confluence storage-size limit
+// as an inline table). Wrap in tableFilter for in-header filtering/pagination.
+macros.csvTable('data.csv');
+macros.tableFilter(macros.csvTable('data.csv'), { totalrow: ',,,,,,,,Sum' });
 ```
 
 Or write markers by hand right in Markdown:

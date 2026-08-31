@@ -17,10 +17,12 @@ export {
 } from './xml.js';
 export { coreMacrosPlugin, extractPlainText } from './plugins/core.js';
 export { tableFilterPlugin, TABLE_FILTER_DEFAULTS } from './plugins/table-filter.js';
+export { csvTablePlugin, CSV_TABLE_DEFAULTS } from './plugins/csv-table.js';
 
 import { MacroRegistry } from './registry.js';
 import { coreMacrosPlugin } from './plugins/core.js';
 import { tableFilterPlugin } from './plugins/table-filter.js';
+import { csvTablePlugin } from './plugins/csv-table.js';
 import {
   anchor,
   children,
@@ -39,10 +41,11 @@ import {
   warning,
 } from './plugins/core.js';
 import { tableExcerpt, tableExcerptInclude, tableFilter, tableJoiner } from './plugins/table-filter.js';
+import { csvTable } from './plugins/csv-table.js';
 
 /** Creates a registry pre-loaded with all built-in plugins. */
 export function createDefaultRegistry(): MacroRegistry {
-  return new MacroRegistry().use(coreMacrosPlugin).use(tableFilterPlugin);
+  return new MacroRegistry().use(coreMacrosPlugin).use(tableFilterPlugin).use(csvTablePlugin);
 }
 
 /**
@@ -82,4 +85,5 @@ export const macros = {
   tableFilter,
   tableExcerptInclude,
   tableJoiner,
+  csvTable,
 };

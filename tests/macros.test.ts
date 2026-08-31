@@ -52,6 +52,26 @@ describe('processMacros', () => {
     expect(out).not.toContain('MACRO:start');
   });
 
+  it('renders csv-table from an attachment with editor defaults', () => {
+    const md = macros.csvTable('worklogs_summary.csv').toString();
+    const out = processMacros(md, registry).toString();
+    expect(out).toContain('ac:name="csv-table"');
+    expect(out).toContain('<ac:parameter ac:name="attachment">worklogs_summary.csv</ac:parameter>');
+    expect(out).toContain('<ac:parameter ac:name="source">attachment</ac:parameter>');
+    expect(out).toContain('<ac:parameter ac:name="header"></ac:parameter>');
+    expect(out).not.toContain('MACRO:start');
+  });
+
+  it('wraps csv-table in table-filter (nested, inner-first)', () => {
+    const md = macros.tableFilter(macros.csvTable('data.csv'), { totalrow: ',,Sum' });
+    const out = processMacros(md.toString(), registry).toString();
+    const filterIdx = out.indexOf('ac:name="table-filter"');
+    const csvIdx = out.indexOf('ac:name="csv-table"');
+    expect(filterIdx).toBeGreaterThanOrEqual(0);
+    expect(csvIdx).toBeGreaterThan(filterIdx);
+    expect(out).toContain('<ac:parameter ac:name="totalrow">,,Sum</ac:parameter>');
+  });
+
   it('warns and throws on unclosed macro', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const input = '<!-- MACRO:start:expand -->\nno end';
