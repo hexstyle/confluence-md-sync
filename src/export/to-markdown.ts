@@ -689,11 +689,14 @@ class Converter {
   // ── Списки ───────────────────────────────────────────────────────────
 
   private listToMd(list: XElement): string {
-    if (list.attrs.some(([k]) => !(list.name === 'ol' && k === 'start'))) {
+    // readable-режим отбрасывает оформление, поэтому презентационные атрибуты
+    // (class/style, напр. вставленный ds-markdown/code-line) на списке и его
+    // пунктах игнорируются — список всё равно превращается в чистый markdown.
+    if (!this.readable && list.attrs.some(([k]) => !(list.name === 'ol' && k === 'start'))) {
       throw new Unrepresentable();
     }
     const items = list.children.filter((n) => !(n.kind === 'text' && /^[ \t\r\n]*$/.test(n.raw)));
-    if (!items.every((n): n is XElement => n.kind === 'el' && n.name === 'li' && n.attrs.length === 0)) {
+    if (!items.every((n): n is XElement => n.kind === 'el' && n.name === 'li' && (this.readable || n.attrs.length === 0))) {
       throw new Unrepresentable();
     }
     const lis = items as XElement[];
@@ -737,7 +740,7 @@ class Converter {
       if (part.kind === 'el' && (part.name === 'ul' || part.name === 'ol')) {
         flushInline();
         lines.push(...this.listToMd(part).split('\n'));
-      } else if (part.kind === 'el' && part.name === 'p' && part.attrs.length === 0) {
+      } else if (part.kind === 'el' && part.name === 'p' && (this.readable || part.attrs.length === 0)) {
         if (!loose) throw new Unrepresentable();
         if (lines.length > 0) lines.push('');
         const md = guardLineStart(this.inlineToMd(part.children).trim());
