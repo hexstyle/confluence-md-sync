@@ -336,6 +336,10 @@ that doesn't fit falls back to markers/fenced blocks automatically.
 | `status` | `{{status:Текст\|colour=Green\|subtle=true}}` |
 | `anchor` | `{{anchor:name}}` |
 | `detailssummary` (Page Properties Report) | `{{properties-report:cql=…\|firstcolumn=…}}` |
+| `portfolio-for-jira-plan` (Portfolio/Advanced Roadmaps plan) | `{{portfolio-for-jira-plan:url=…\|planHeight=900}}` |
+
+Adding a macro is a single folder: `src/macros/plugins/` (one file per macro) —
+see [`src/macros/plugins/README.md`](src/macros/plugins/README.md).
 
 Inside fenced code blocks the syntax is left untouched. The machine-readable
 list is exported as `nativeMacroList()`; the md→markers pass is

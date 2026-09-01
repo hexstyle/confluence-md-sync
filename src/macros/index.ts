@@ -18,11 +18,13 @@ export {
 export { coreMacrosPlugin, extractPlainText } from './plugins/core.js';
 export { tableFilterPlugin, TABLE_FILTER_DEFAULTS } from './plugins/table-filter.js';
 export { csvTablePlugin, CSV_TABLE_DEFAULTS } from './plugins/csv-table.js';
+export { portfolioForJiraPlanPlugin } from './plugins/portfolio-for-jira-plan.js';
 
 import { MacroRegistry } from './registry.js';
 import { coreMacrosPlugin } from './plugins/core.js';
 import { tableFilterPlugin } from './plugins/table-filter.js';
 import { csvTablePlugin } from './plugins/csv-table.js';
+import { portfolioForJiraPlanPlugin } from './plugins/portfolio-for-jira-plan.js';
 import {
   anchor,
   children,
@@ -42,10 +44,15 @@ import {
 } from './plugins/core.js';
 import { tableExcerpt, tableExcerptInclude, tableFilter, tableJoiner } from './plugins/table-filter.js';
 import { csvTable } from './plugins/csv-table.js';
+import { portfolioForJiraPlan } from './plugins/portfolio-for-jira-plan.js';
 
 /** Creates a registry pre-loaded with all built-in plugins. */
 export function createDefaultRegistry(): MacroRegistry {
-  return new MacroRegistry().use(coreMacrosPlugin).use(tableFilterPlugin).use(csvTablePlugin);
+  return new MacroRegistry()
+    .use(coreMacrosPlugin)
+    .use(tableFilterPlugin)
+    .use(csvTablePlugin)
+    .use(portfolioForJiraPlanPlugin);
 }
 
 /**
@@ -86,4 +93,5 @@ export const macros = {
   tableExcerptInclude,
   tableJoiner,
   csvTable,
+  portfolioForJiraPlan,
 };

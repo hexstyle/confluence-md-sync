@@ -373,6 +373,7 @@ class Converter {
   private static readonly NATIVE_PLACEHOLDER_NAME: Record<string, string> = {
     toc: 'toc', children: 'children', jira: 'jira', status: 'status',
     anchor: 'anchor', detailssummary: 'properties-report',
+    'portfolio-for-jira-plan': 'portfolio-for-jira-plan',
   };
 
   private tryNativeMd(el: XElement, name: string): string | null {

@@ -126,10 +126,19 @@ describe('round-trip (storage → нативный md)', () => {
   });
 
   it('макрос вне перечня остаётся маркером', () => {
-    const md = '<!-- MACRO:start:portfolio-for-jira-plan:url=https%3A//x -->\n\n<!-- MACRO:end:portfolio-for-jira-plan -->';
+    const md = '<!-- MACRO:start:gallery:columns=3 -->\n\n<!-- MACRO:end:gallery -->';
     const { back, native } = roundTrip(md);
-    expect(back).toContain('MACRO:start:portfolio-for-jira-plan');
+    expect(back).toContain('MACRO:start:gallery');
     expect(native).toBe(0);
+  });
+
+  it('portfolio-for-jira-plan: нативный {{…}} round-trip', () => {
+    const md = '{{portfolio-for-jira-plan:url=https://jira/secure/x.jspa?r=abc|planHeight=900}}';
+    const { back, native } = roundTrip(md);
+    expect(native).toBe(1);
+    expect(back).toContain('{{portfolio-for-jira-plan:');
+    expect(back).toContain('planHeight=900');
+    expect(back).toContain('url=https://jira/secure/x.jspa?r=abc');
   });
 });
 

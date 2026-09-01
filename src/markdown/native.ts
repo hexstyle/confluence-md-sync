@@ -55,6 +55,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
   status: 'status',
   anchor: 'anchor',
   'properties-report': 'detailssummary',
+  'portfolio-for-jira-plan': 'portfolio-for-jira-plan',
 };
 
 /** Полный перечень макросов с нативной md-разметкой (для документации/UI). */
@@ -73,13 +74,14 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
     { macro: 'status', syntax: '{{status:Текст|colour=Green|subtle=true}}' },
     { macro: 'anchor', syntax: '{{anchor:имя}}' },
     { macro: 'detailssummary', syntax: '{{properties-report:cql=…|firstcolumn=…}}' },
+    { macro: 'portfolio-for-jira-plan', syntax: '{{portfolio-for-jira-plan:url=…|planHeight=900}}' },
   ];
 }
 
 const ADMONITION_FIRST_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
 const DIRECTIVE_OPEN_RE = /^:::\s+([a-z-]+)(?:\s+(.*?))?\s*$/;
 const DIRECTIVE_CLOSE_RE = /^:::\s*$/;
-const PLACEHOLDER_INLINE_RE = /\{\{(toc|children|jira|status|anchor|properties-report)(?::((?:[^{}]|\{[^{])*?))?\}\}/g;
+const PLACEHOLDER_INLINE_RE = /\{\{(toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:[^{}]|\{[^{])*?))?\}\}/g;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 interface Param { name: string; value: string }
