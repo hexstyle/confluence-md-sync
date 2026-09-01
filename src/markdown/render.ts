@@ -112,6 +112,15 @@ export interface RenderStorageOptions {
   fileStyle?: 'url' | 'attachment';
   /** Автопревращение голых URL в ссылки (default: true). */
   linkify?: boolean;
+  /**
+   * Резолвер относительных ссылок на другие md-файлы набора. Для каждой
+   * markdown-ссылки `[text](href)` вызывается с исходным href; если вернул
+   * цель — ссылка публикуется как Confluence page-link (`<ac:link><ri:page>`)
+   * на страницу связанного md (карту file→page строит вызывающий, напр.
+   * docs-studio из манифеста). `null`/`undefined` — ссылка остаётся как есть
+   * (обычная `<a href>`), пригодна для внешних URL и якорей.
+   */
+  linkResolver?: (href: string) => { title: string; space?: string } | null;
 }
 
 export class MissingAttachmentUrlError extends Error {
@@ -159,6 +168,25 @@ export function renderToStorage(
     /<pre><code class="language-confluence-storage">([\s\S]*?)<\/code><\/pre>\n?/g,
     (_full, escaped: string) => unescapeHtml(escaped.replace(/\n$/, '')) + '\n',
   );
+
+  // Ссылки на связанные md → Confluence page-link по резолверу (карта из
+  // манифеста). Только markdown-ссылки (`<a href>` из markdown-it); плейсхолдеры
+  // {{file:}}/{{img:}} рендерятся ниже и сюда ещё не попали. Внешние URL/якоря
+  // резолвер отсекает (возвращает null) — они остаются как есть.
+  if (opts.linkResolver) {
+    const resolve = opts.linkResolver;
+    html = html.replace(/<a href="([^"]*)">([\s\S]*?)<\/a>/g, (full, href: string, inner: string) => {
+      const decoded = unescapeHtml(href);
+      if (/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(decoded)) return full; // http(s):, mailto:, #anchor
+      const target = resolve(decoded);
+      if (!target) return full;
+      const text = unescapeHtml(inner.replace(/<[^>]+>/g, '')).trim();
+      const attrs: Array<[string, string]> = [];
+      if (target.space) attrs.push(['space', target.space]);
+      if (text) attrs.push(['text', text]);
+      return renderPageLink(target.title, attrs);
+    });
+  }
 
   return html.replace(PLACEHOLDER_RE, (_full, kind, rawBody) => {
     const { name, attrs } = parsePlaceholder(String(rawBody));

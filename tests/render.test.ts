@@ -27,6 +27,22 @@ describe('renderToStorage', () => {
     expect(html).toContain('<a href="https://c/x/b.csv">b.csv</a>');
   });
 
+  it('linkResolver: relative md links → page-links, externals untouched', () => {
+    const map: Record<string, { title: string; space?: string }> = {
+      '../design/foo.md': { title: 'Коннекторы' },
+      'bar.md': { title: 'Bar', space: 'DOCS' },
+    };
+    const html = renderToStorage(
+      '[c](../design/foo.md) [ext](https://x.com) [b](bar.md) [anchor](#s)',
+      urls,
+      { linkResolver: (h) => map[h] ?? null },
+    );
+    expect(html).toContain('<ac:link><ri:page ri:content-title="Коннекторы" /><ac:plain-text-link-body><![CDATA[c]]></ac:plain-text-link-body></ac:link>');
+    expect(html).toContain('ri:content-title="Bar" ri:space-key="DOCS"');
+    expect(html).toContain('<a href="https://x.com">ext</a>');
+    expect(html).toContain('<a href="#s">anchor</a>');
+  });
+
   it('produces self-closing void elements (xhtmlOut)', () => {
     expect(renderToStorage('---', { images: new Map(), files: new Map() })).toContain('<hr />');
   });
