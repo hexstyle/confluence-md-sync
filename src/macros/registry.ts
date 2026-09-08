@@ -1,6 +1,6 @@
 import { Markdown } from '../markdown/markdown.js';
 import { unescapeParamValue } from './builder.js';
-import { generateMacroId, structuredMacro } from './xml.js';
+import { stableMacroId, structuredMacro } from './xml.js';
 import type { MacroParam, MacroPlugin, MacroRenderer } from './types.js';
 
 /**
@@ -152,7 +152,9 @@ function processMacroType(storage: string, macroName: string, renderer: MacroRen
 
     const bodyStart = startIdx + match[0].length;
     const body = storage.substring(bodyStart, endIdx).trim();
-    const macroId = generateMacroId();
+    // Стабильный id от содержимого маркера — иначе он менялся бы на КАЖДЫЙ
+    // рендер (см. stableMacroId), ломая content-hash идемпотентность publish.
+    const macroId = stableMacroId(`${macroName}\u0000${paramStr}\u0000${body}`);
 
     const macroXhtml = renderer({ params, body, macroId });
 

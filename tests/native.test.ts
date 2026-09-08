@@ -224,3 +224,23 @@ describe('details: ссылки в ячейках свойств не теряю
     expect(res.markdown).not.toMatch(/\| Код системы \|\s*\|/);
   });
 });
+
+describe('идемпотентность content-hash (macro-id стабилен между рендерами)', () => {
+  it('повторный рендер того же markdown даёт БАЙТ-В-БАЙТ идентичный storage', () => {
+    const md = '::: properties\n| Код | Значение |\n| --- | --- |\n| Х | Y |\n:::\n\n{{toc}}\n\n> [!NOTE]\n> Текст.';
+    const a = toStorage(md);
+    const b = toStorage(md);
+    expect(a).toBe(b); // раньше отличались: ac:macro-id генерировался Math.random() при каждом вызове
+  });
+
+  it('маркер-based макрос (не нативный) тоже стабилен между рендерами', () => {
+    const md = '<!-- MACRO:start:jira:key=DR-1 -->\n\n<!-- MACRO:end:jira -->';
+    expect(toStorage(md)).toBe(toStorage(md));
+  });
+
+  it('разное содержимое макроса даёт разные macro-id (не единая константа)', () => {
+    const a = toStorage('::: properties\n| К | З |\n| --- | --- |\n| a | 1 |\n:::');
+    const b = toStorage('::: properties\n| К | З |\n| --- | --- |\n| a | 2 |\n:::');
+    expect(a).not.toBe(b);
+  });
+});

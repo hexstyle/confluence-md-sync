@@ -1,5 +1,6 @@
 /** XML helpers shared by macro renderers. */
 
+import { createHash } from 'node:crypto';
 import type { MacroParam } from './types.js';
 
 /** Экранирует строку для XML-атрибутов и текстовых узлов. */
@@ -16,13 +17,34 @@ export function escapeXmlAttr(s: string): string {
   });
 }
 
-/** Генерирует UUID для ac:macro-id. */
+/** Генерирует случайный UUID для ac:macro-id (когда стабильность не нужна). */
 export function generateMacroId(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+/**
+ * Детерминированный macro-id (UUID-формы) от seed — как правило, от исходного
+ * содержимого маркера (имя+параметры+тело). ВАЖНО для идемпотентности
+ * content-hash: если id генерировать случайно на каждый рендер (см.
+ * {@link generateMacroId}), storage у страницы с любым макросом отличается
+ * при каждой публикации, даже когда исходный markdown не менялся — hash
+ * никогда не совпадает, и publish принудительно обновляет страницу заново
+ * при каждом прогоне (замечено на проде: 1 изменённый файл → 250+ страниц
+ * «обновились», потому что ~250 из них содержат макрос details/properties).
+ * Стабильный id по содержимому убирает этот псевдо-дрейф: одинаковый маркер
+ * даёт одинаковый storage → hash совпадает → UNCHANGED.
+ */
+export function stableMacroId(seed: string): string {
+  const hex = createHash('sha256').update(seed, 'utf-8').digest('hex');
+  const bytes = hex.slice(0, 32);
+  return (
+    `${bytes.slice(0, 8)}-${bytes.slice(8, 12)}-4${bytes.slice(13, 16)}-` +
+    `${'89ab'[parseInt(bytes[16], 16) % 4]}${bytes.slice(17, 20)}-${bytes.slice(20, 32)}`
+  );
 }
 
 export interface StructuredMacroOptions {
