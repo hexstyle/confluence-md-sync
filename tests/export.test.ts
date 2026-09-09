@@ -91,12 +91,17 @@ describe('storageToMarkdown', () => {
     expect(markdown).toContain('| Анна | 8 |');
   });
 
-  it('keeps a complex table as raw html', () => {
+  it('normalizes a complex (colspan) table into GFM instead of raw html', () => {
+    // Confluence stamps class/style on every table and a colspan merge means
+    // strict tableToMd can't map it 1:1 — normalize (readableTable) rather
+    // than dump literal <table> tags; data survives, the merge doesn't.
     const src =
       '<table class="wrapped"><tbody><tr><td colspan="2"><ul><li>x</li></ul></td></tr></tbody></table>';
     const { markdown, stats } = storageToMarkdown(src);
-    expect(markdown.trim()).toBe(src);
-    expect(stats.rawHtml).toBe(1);
+    expect(markdown).not.toContain('<table');
+    expect(markdown).toContain('x');
+    expect(stats.normalized).toBe(1);
+    expect(stats.rawHtml).toBe(0);
   });
 
   it('turns attachment images into {{img}} placeholders with attrs', () => {
@@ -399,10 +404,17 @@ describe('storageToMarkdown readable mode', () => {
     expect(markdown).toContain('<img src="attachments/a.png" height="23" alt="a.png" />');
   });
 
-  it('faithful mode is unchanged (still emits raw html / fences)', () => {
+  it('faithful and readable now agree on normalizing a colspan table (no raw html in either)', () => {
+    // 0.9.0: faithful also normalizes tables it can't map 1:1 to GFM (attrs,
+    // colspan/rowspan, missing <th>) instead of dumping literal <table> tags.
     const src = '<table class="wrapped"><tbody><tr><td colspan="2">x</td></tr></tbody></table>';
-    expect(storageToMarkdown(src).markdown.trim()).toBe(src); // raw html preserved
+    expect(storageToMarkdown(src).markdown).not.toContain('<table');
     expect(storageToMarkdown(src, readable).markdown).not.toContain('<table');
+  });
+
+  it('a genuinely empty table still falls back to raw html in faithful mode', () => {
+    const src = '<table class="wrapped"></table>';
+    expect(storageToMarkdown(src).markdown.trim()).toBe(src);
   });
 });
 
@@ -414,7 +426,6 @@ describe('roundTripStorage', () => {
       '<ul><li>пункт один</li><li>пункт два</li></ul>' +
       '<table><thead><tr><th>Ключ</th><th>Значение</th></tr></thead>' +
       '<tbody><tr><td>размер</td><td>42</td></tr></tbody></table>' +
-      '<table class="wrapped"><colgroup><col /></colgroup><tbody><tr><td rowspan="2"><p>сложная</p></td></tr><tr></tr></tbody></table>' +
       '<p><ac:image ac:height="250"><ri:attachment ri:filename="chart.png" /></ac:image></p>' +
       '<p>Ссылка: <ac:link><ri:page ri:content-title="Список проектов" /></ac:link></p>' +
       '<ac:structured-macro ac:name="expand" ac:schema-version="1" ac:macro-id="e1">' +
@@ -427,6 +438,20 @@ describe('roundTripStorage', () => {
     expect(r.equal).toBe(true);
     expect(r.images).toEqual(['chart.png']);
     expect(r.stats.fenced).toBe(0);
+  });
+
+  it('a rowspan table on an otherwise-faithful page normalizes (loses the merge, keeps the data)', () => {
+    // Genuine colspan/rowspan is the one case tableToMd can't map onto GFM by
+    // construction — canonical loss here is intentional (see stats.normalized),
+    // not a regression, so it's split out from the zero-loss composite test above.
+    const storage =
+      '<h1>Отчёт</h1>' +
+      '<table class="wrapped"><colgroup><col /></colgroup><tbody><tr><td rowspan="2"><p>сложная</p></td></tr><tr></tr></tbody></table>';
+    const r = roundTripStorage(storage);
+    expect(r.stats.normalized).toBe(1);
+    expect(r.markdown).toContain('сложная');
+    expect(r.markdown).not.toContain('<table');
+    expect(r.diffs.length).toBeGreaterThan(0); // ожидаемая потеря (class, rowspan)
   });
 
   it('round-trips a code macro through a fenced body', () => {

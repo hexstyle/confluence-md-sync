@@ -223,10 +223,33 @@ class Converter {
       if (el.name === 'table') {
         // tables:'records' — любую таблицу разворачиваем в записи.
         if (this.tablesAsRecords) return this.recordsTable(el);
-        // Простую таблицу — в чистый GFM (оба режима). Сложную tableToMd
-        // отклоняет: faithful → сырой HTML, readable → readableFallback
-        // (lossy++ и разворот в GFM через readableTable).
-        return this.tableToMd(el);
+        try {
+          return this.tableToMd(el);
+        } catch (e) {
+          if (!(e instanceof Unrepresentable)) throw e;
+          // Строгая GFM-конвертация отклонила таблицу: то ли из-за косметики
+          // (Confluence лепит class="wrapped" style="width:…%" на КАЖДУЮ
+          // таблицу, а первую строку часто оформляет жирным <td> вместо <th>),
+          // то ли из-за реальных объединений (colspan/rowspan). В faithful без
+          // этой ветки ЛЮБАЯ такая таблица падала в дословный <table> HTML —
+          // нормализуем в GFM тем же путём, что readable (buildTableGrid не
+          // смотрит на атрибуты/семантику заголовка): оформление и объединения
+          // теряются при повторной публикации, но данные — md-таблица, не теги.
+          if (!this.readable) {
+            const saved = this.readable;
+            this.readable = true;
+            try {
+              const norm = this.readableTable(el);
+              this.stats.normalized++;
+              return norm;
+            } catch (e2) {
+              if (!(e2 instanceof Unrepresentable)) throw e2;
+            } finally {
+              this.readable = saved;
+            }
+          }
+          throw e;
+        }
       }
       if (el.name === 'ac:structured-macro') return this.macroToMd(el);
       if (el.name === 'ac:image' || el.name === 'ac:link') {
