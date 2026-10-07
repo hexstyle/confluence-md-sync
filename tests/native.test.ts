@@ -47,6 +47,13 @@ describe('nativeToMarkers', () => {
 });
 
 describe('render → storage', () => {
+  it('adjacent macros in a paragraph become editable native objects in their original order', () => {
+    const storage = '<p><ac:structured-macro ac:name="toc" /> <ac:structured-macro ac:name="children" ac:schema-version="2" /></p>';
+    const result = storageToMarkdown(storage);
+    expect(result.markdown.trim()).toBe('{{toc}} {{children}}');
+    expect(result.stats.normalized).toBe(1);
+    expect(compareStorage(storage.slice(3, -4), toStorage(result.markdown)).equal).toBe(true);
+  });
   it('Search Results preserves structured space and every query parameter', () => {
     const storage = '<ac:structured-macro ac:name="search"><ac:parameter ac:name="spacekey"><ri:space ri:space-key="COREDATA" /></ac:parameter><ac:parameter ac:name="query">FLW_DWH_PSP</ac:parameter><ac:parameter ac:name="type">page</ac:parameter><ac:parameter ac:name="maxLimit">25</ac:parameter><ac:parameter ac:name="lastModified">3w</ac:parameter><ac:parameter ac:name="contributor">analyst</ac:parameter></ac:structured-macro>';
     const result = storageToMarkdown(storage);

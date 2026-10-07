@@ -222,6 +222,14 @@ class Converter {
         if (meaningful.length === 1 && meaningful[0].kind === 'el' && meaningful[0].name === 'ac:structured-macro') {
           return this.macroToMd(meaningful[0]);
         }
+        if (meaningful.length > 1 && meaningful.every(n => n.kind === 'el' && n.name === 'ac:structured-macro')) {
+          const native = meaningful.map(n => this.tryNativeMd(n as XElement, getAttr(n as XElement, 'ac:name') ?? ''));
+          if (native.every(s => s?.startsWith('{{') && !s.includes('\n'))) {
+            this.stats.native += native.length;
+            this.stats.normalized++; // A paragraph around block macros is redundant in Confluence.
+            return native.join(' ');
+          }
+        }
         return this.paragraphMd(el.children);
       }
       if (el.name === 'hr') return '---';
