@@ -175,10 +175,15 @@ function directiveParams(name: string, rest: string | undefined): Param[] {
   const params: Param[] = [];
   if (!rest) return params;
   const free: string[] = [];
-  const re = /([A-Za-z-]+)=("([^"]*)"|\S+)|(\S+)/g;
+  const re = /([A-Za-z_][\w-]*)=("(?:\\.|[^"\\])*"|\S+)|(\S+)/g;
   for (const m of rest.matchAll(re)) {
-    if (m[1]) params.push({ name: m[1], value: m[3] ?? m[2] });
-    else free.push(m[4]);
+    if (m[1]) {
+      let value = m[2];
+      if (value.startsWith('"') && value.endsWith('"')) {
+        try { value = JSON.parse(value); } catch { /* Preserve malformed legacy values as text. */ }
+      }
+      params.push({ name: m[1], value });
+    } else free.push(m[3]);
   }
   if (free.length && name === 'expand') params.unshift({ name: 'title', value: free.join(' ') });
   return params;
