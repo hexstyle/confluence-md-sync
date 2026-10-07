@@ -9,7 +9,7 @@ import { ConfluenceClient } from '../client/client.js';
 import type { ConfluenceConfig } from '../client/config.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
-import { drawioReferences } from '../markdown/drawio.js';
+import { drawioReferences, drawioAttachmentNames } from '../markdown/drawio.js';
 
 export interface ExportPageOptions {
   /**
@@ -56,6 +56,7 @@ export async function exportPage(
   const client = new ConfluenceClient(cfg);
   const page = await client.getPageStorage(pageId);
   const converted = storageToMarkdown(page.storage, {
+    drawioNames: drawioAttachmentNames(await client.listAttachments(pageId)),
     registry: opts.registry,
     mode: opts.mode,
     attachments: opts.attachments,

@@ -211,13 +211,18 @@ export function nativeToMarkers(src: string): string {
       let j = i + 1;
       let innerFence: string | null = null;
       let closed = false;
+      let depth = 1;
       for (; j < lines.length; j++) {
         const bl = lines[j];
         const bfm = FENCE_RE.exec(bl);
         if (bfm) {
           if (innerFence === null) innerFence = bfm[1][0];
           else if (bfm[1][0] === innerFence) innerFence = null;
-        } else if (innerFence === null && DIRECTIVE_CLOSE_RE.test(bl)) { closed = true; break; }
+        } else if (innerFence === null) {
+          const nested = DIRECTIVE_OPEN_RE.exec(bl);
+          if (nested && NATIVE_DIRECTIVES[nested[1]]) depth++;
+          else if (DIRECTIVE_CLOSE_RE.test(bl) && --depth === 0) { closed = true; break; }
+        }
         body.push(bl);
       }
       if (closed) {

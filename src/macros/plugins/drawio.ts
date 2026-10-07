@@ -10,7 +10,7 @@ export const drawioPlugin: MacroPlugin = {
     const name = params.diagramName;
     if (!name) throw new Error('drawio: diagramName is required');
     if (params.format === 'image') {
-      return `<ac:image ac:alt="${escapeXmlAttr(`drawio:${name}`)}"><ri:attachment ri:filename="${escapeXmlAttr(params.preview || `${name}.png`)}" /></ac:image>`;
+      return `<ac:image><ri:attachment ri:filename="${escapeXmlAttr(params.preview || `${name}.png`)}" /></ac:image>`;
     }
     if (params.format && params.format !== 'macro') throw new Error('drawio: format must be macro or image');
     return structuredMacro('drawio', ctx.macroId, { params: ctx.params.filter(p => p.name !== 'format' && p.name !== 'preview').sort((a, b) => a.name.localeCompare(b.name)) });

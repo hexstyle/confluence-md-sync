@@ -41,6 +41,8 @@ import {
 } from './xhtml.js';
 
 export interface StorageToMarkdownOptions {
+  /** Known XML attachments; needed for image-mode diagrams without a .drawio suffix. */
+  drawioNames?: string[];
   /** Реестр для проверки маркеров макросов (default: встроенный). */
   registry?: MacroRegistry;
   /**
@@ -104,6 +106,7 @@ export function storageToMarkdown(
     localFiles: local,
     tablesAsRecords: records,
     localPrefix: opts.localPrefix ?? 'attachments/',
+    drawioNames: opts.drawioNames ?? [],
   });
   const markdown = conv.blocksToMd(parseStorage(storage));
   const attachmentRefs = new Set<string>([...conv.images, ...conv.files]);
@@ -149,6 +152,7 @@ const SAFE_URL_RE = /^[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+$/;
 type InlineCtx = { cell?: boolean; multiline?: boolean };
 
 interface ConverterOpts {
+  drawioNames: string[];
   readable: boolean;
   localFiles: boolean;
   tablesAsRecords: boolean;
@@ -156,6 +160,7 @@ interface ConverterOpts {
 }
 
 class Converter {
+  private drawioNames: Set<string>;
   images = new Set<string>();
   files = new Set<string>();
   stats = { markers: 0, fenced: 0, rawHtml: 0, lossy: 0, native: 0, normalized: 0 };
@@ -166,6 +171,7 @@ class Converter {
   private localPrefix: string;
 
   constructor(private registry: MacroRegistry, opts: ConverterOpts) {
+    this.drawioNames = new Set(opts.drawioNames);
     this.readable = opts.readable;
     this.localFiles = opts.localFiles;
     this.tablesAsRecords = opts.tablesAsRecords;
@@ -1195,7 +1201,10 @@ class Converter {
     const kids = elements(el.children);
     if (kids.length !== 1) throw new Unrepresentable();
     const ref = kids[0];
-    const drawioName = getAttr(el, 'ac:alt')?.match(/^drawio:(.+)$/)?.[1];
+    const filename = getAttr(ref, 'ri:filename') ?? '';
+    const stem = filename.replace(/\.png$/i, '');
+    const drawioName = getAttr(el, 'ac:alt')?.match(/^drawio:(.+)$/)?.[1]
+      ?? (stem !== filename && (this.drawioNames.has(stem) || /\.drawio$/i.test(stem)) ? stem : undefined);
     if (drawioName && ref.name === 'ri:attachment' && !/[{}|\n/\\]/.test(drawioName)) {
       const preview = getAttr(ref, 'ri:filename');
       if (preview && !/[{}|\n/\\]/.test(preview)) {
@@ -1247,7 +1256,6 @@ class Converter {
     if (!ref.attrs.every(([k]) => k === 'ri:filename' || k === 'ri:version-at-save')) {
       throw new Unrepresentable();
     }
-    const filename = getAttr(ref, 'ri:filename') ?? '';
     const attrs: Array<[string, string]> = [];
     for (const [k] of el.attrs) {
       if (!k.startsWith('ac:')) throw new Unrepresentable();

@@ -47,6 +47,13 @@ describe('nativeToMarkers', () => {
 });
 
 describe('render → storage', () => {
+  it('nested directives keep their own closing delimiter before later sections', () => {
+    const md = '::: expand Outer\n::: properties\n| K | V |\n| --- | --- |\n| a | b |\n:::\nAfter table\n:::\n\n## Outside';
+    const st = toStorage(md);
+    expect(st).not.toContain(':::');
+    expect(st).toContain('ac:name="details"');
+    expect(st).toMatch(/After table[\s\S]*<\/ac:structured-macro>\s*<h2>Outside/);
+  });
   it('admonition → структурный макрос', () => {
     const st = toStorage('> [!WARNING] Осторожно\n> Не редактируйте вручную.');
     expect(st).toContain('ac:name="warning"');

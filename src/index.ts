@@ -32,7 +32,7 @@ export {
   type RenderStorageOptions,
 } from './markdown/render.js';
 export { validateMarkdown, MarkdownValidationError, type ValidateOptions } from './markdown/validate.js';
-export { drawioReferences, type DrawioReference } from './markdown/drawio.js';
+export { drawioReferences, drawioAttachmentNames, type DrawioReference } from './markdown/drawio.js';
 export {
   nativeToMarkers,
   nativeMacroList,

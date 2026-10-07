@@ -3,6 +3,10 @@ import { parsePlaceholder } from './render.js';
 
 export interface DrawioReference { name: string; preview: string; format: 'macro' | 'image'; revision?: string; pageId?: string }
 
+export function drawioAttachmentNames(attachments: { title: string; extensions?: { mediaType?: string } }[]): string[] {
+  return attachments.filter(a => a.extensions?.mediaType === 'application/vnd.jgraph.mxfile' || /\.drawio$/i.test(a.title)).map(a => a.title);
+}
+
 /** Skip code examples; ordinary and table-cell references remain attachments. */
 export function drawioReferences(markdown: string): DrawioReference[] {
   const refs: DrawioReference[] = [];

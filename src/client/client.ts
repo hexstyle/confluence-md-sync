@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { authHeader, type ConfluenceConfig } from './config.js';
 
+function attachmentMime(name: string, bytes: Buffer): string {
+  if (/^\s*(?:<\?xml[^>]*>\s*)?<(mxfile|mxGraphModel)\b/.test(bytes.subarray(0, 4096).toString('utf8'))) return 'application/vnd.jgraph.mxfile';
+  return /\.png$/i.test(name) ? 'image/png' : 'application/octet-stream';
+}
+
 export interface ConfluencePage {
   id: string;
   title: string;
@@ -18,7 +23,7 @@ export interface ConfluenceAttachment {
   id: string;
   title: string;
   version: { number: number; message?: string };
-  extensions?: { fileSize?: number };
+  extensions?: { fileSize?: number; mediaType?: string };
   /**
    * `_links.download` — относительный путь скачивания, который Confluence
    * возвращает в ответе и который нужно подставлять в `<img src>` / `<a href>`
@@ -328,7 +333,7 @@ export class ConfluenceClient {
     const filename = basename(filePath);
     const buf = readFileSync(filePath);
     const form = new FormData();
-    form.append('file', new Blob([buf]), filename);
+    form.append('file', new Blob([buf], { type: attachmentMime(filename, buf) }), filename);
     form.append('minorEdit', 'true');
     if (comment) form.append('comment', comment);
     const res = await fetch(this.url(`/rest/api/content/${pageId}/child/attachment`), {
@@ -363,7 +368,7 @@ export class ConfluenceClient {
     const filename = basename(filePath);
     const buf = readFileSync(filePath);
     const form = new FormData();
-    form.append('file', new Blob([buf]), filename);
+    form.append('file', new Blob([buf], { type: attachmentMime(filename, buf) }), filename);
     form.append('minorEdit', 'true');
     if (comment) form.append('comment', comment);
     const res = await fetch(

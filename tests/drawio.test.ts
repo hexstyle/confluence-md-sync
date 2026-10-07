@@ -30,6 +30,12 @@ describe('draw.io', () => {
     expect(() => drawioReferences('{{drawio:../flow.drawio}}')).toThrow('filename');
     expect(() => drawioReferences('{{drawio:flow.drawio|format=unknown}}')).toThrow('format');
   });
+  it('recognizes extensionless image-mode diagrams after Confluence removes image attributes', () => {
+    const storage = '<ac:image><ri:attachment ri:filename="Схема CICD.png" /></ac:image>';
+    const result = storageToMarkdown(storage, { drawioNames: ['Схема CICD'] });
+    expect(result.markdown.trim()).toBe('{{drawio:Схема CICD|format=image}}');
+    expect(result.files).toEqual(['Схема CICD']);
+  });
   it('imports an included diagram as a local editable object with its source page', () => {
     const result = storageToMarkdown(macro.replace('ac:name="drawio"', 'ac:name="inc-drawio"').replace('</ac:structured-macro>', '<ac:parameter ac:name="pageId">42</ac:parameter></ac:structured-macro>'));
     expect(drawioReferences(result.markdown)[0].pageId).toBe('42');
