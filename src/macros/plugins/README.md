@@ -42,3 +42,6 @@ A macro can travel in up to three directions; wire the ones it needs:
 - **Params via `paramMap(ctx.params)`**; escape/encode is handled by `structuredMacro`.
 - Keep the macro's three directions **round-trippable**: export → native md → render → storage must
   canonically match the original (the export verifies this before emitting native syntax).
+
+`structurizr.ts` renders `{{structurizr:workspace.dsl|view=key}}` as a PNG attachment.
+DSL and JSON remain downloadable attachments; image filenames retain the view key for imports.

@@ -1213,6 +1213,14 @@ class Converter {
     if (kids.length !== 1) throw new Unrepresentable();
     const ref = kids[0];
     const filename = getAttr(ref, 'ri:filename') ?? '';
+    const architecture = /^(.*\.dsl)\.((?:[0-9a-f]{2})+)\.png$/.exec(filename);
+    if (architecture && ref.name === 'ri:attachment' && !/[{}|\n/\\]/.test(architecture[1])) {
+      const view = new TextDecoder('utf-8').decode(Uint8Array.from(architecture[2].match(/../g)!, b => parseInt(b, 16)));
+      if (view && !/[{}|\n\uFFFD]/.test(view)) {
+        this.files.add(architecture[1]); this.files.add(architecture[1].replace(/\.dsl$/, '.json')); this.images.add(filename);
+        return `{{structurizr:${architecture[1]}|view=${view}}}`;
+      }
+    }
     const stem = filename.replace(/\.png$/i, '');
     const drawioName = getAttr(el, 'ac:alt')?.match(/^drawio:(.+)$/)?.[1]
       ?? (stem !== filename && (this.drawioNames.has(stem) || /\.drawio$/i.test(stem)) ? stem : undefined);

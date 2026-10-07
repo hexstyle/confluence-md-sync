@@ -19,6 +19,7 @@ export { coreMacrosPlugin, extractPlainText } from './plugins/core.js';
 export { tableFilterPlugin, TABLE_FILTER_DEFAULTS } from './plugins/table-filter.js';
 export { csvTablePlugin, CSV_TABLE_DEFAULTS } from './plugins/csv-table.js';
 export { portfolioForJiraPlanPlugin } from './plugins/portfolio-for-jira-plan.js';
+export { structurizrPlugin } from './plugins/structurizr.js';
 export { drawioPlugin } from './plugins/drawio.js';
 export { searchPlugin } from './plugins/search.js';
 
@@ -47,6 +48,7 @@ import {
 import { tableExcerpt, tableExcerptInclude, tableFilter, tableJoiner } from './plugins/table-filter.js';
 import { csvTable } from './plugins/csv-table.js';
 import { portfolioForJiraPlan } from './plugins/portfolio-for-jira-plan.js';
+import { structurizr, structurizrPlugin } from './plugins/structurizr.js';
 import { drawio, drawioPlugin } from './plugins/drawio.js';
 import { search, searchPlugin } from './plugins/search.js';
 
@@ -58,6 +60,7 @@ export function createDefaultRegistry(): MacroRegistry {
     .use(csvTablePlugin)
     .use(portfolioForJiraPlanPlugin)
     .use(drawioPlugin)
+    .use(structurizrPlugin)
     .use(searchPlugin);
 }
 
@@ -101,5 +104,6 @@ export const macros = {
   csvTable,
   portfolioForJiraPlan,
   drawio,
+  structurizr,
   search,
 };

@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { extractPlaceholders } from './render.js';
+import { structurizrReferences } from './structurizr.js';
 import { drawioReferences } from './drawio.js';
 
 export class MarkdownValidationError extends Error {
@@ -20,6 +21,7 @@ export interface ValidateOptions {
 export function validateMarkdown(opts: ValidateOptions): void {
   const { images, files } = extractPlaceholders(opts.markdown);
   for (const diagram of drawioReferences(opts.markdown)) { files.push(diagram.name); images.push(diagram.preview); }
+  for (const diagram of structurizrReferences(opts.markdown)) { files.push(diagram.name, diagram.json); images.push(diagram.preview); }
   const tables = extractTablePlaceholders(opts.markdown);
   const providedImages = new Set(opts.imagePaths.map((p) => basename(p)));
   const providedFiles = new Set(opts.filePaths.map((p) => basename(p)));

@@ -7,3 +7,5 @@ Paragraphs containing only adjacent native macros keep their order and lose only
 redundant paragraph wrapper; this is reported as a normalized conversion.
 `export-page.ts` downloads the referenced attachments. `canonical.ts` and `roundtrip.ts`
 verify semantic equivalence; `xhtml.ts` parses storage without losing namespaced elements.
+
+Structurizr preview filenames restore native references, DSL and JSON attachments.

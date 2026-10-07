@@ -51,6 +51,7 @@ export const NATIVE_DIRECTIVES: Record<string, string> = {
 export const NATIVE_PLACEHOLDERS: Record<string, string> = {
   search: 'search',
   drawio: 'drawio',
+  structurizr: 'structurizr',
   toc: 'toc',
   children: 'children',
   jira: 'jira',
@@ -64,6 +65,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
 export function nativeMacroList(): { macro: string; syntax: string }[] {
   return [
     { macro: 'search', syntax: '{{search:query=…|spacekey=…|type=page|maxLimit=10}}' },
+    { macro: 'structurizr', syntax: '{{structurizr:workspace.dsl|view=containers}}' },
     { macro: 'drawio', syntax: '{{drawio:diagram.drawio|format=macro}} | {{drawio:diagram.drawio|format=image}}' },
     { macro: 'info', syntax: '> [!INFO] Заголовок?' },
     { macro: 'note', syntax: '> [!NOTE] Заголовок?' },
@@ -85,7 +87,7 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
 const ADMONITION_FIRST_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
 const DIRECTIVE_OPEN_RE = /^:::\s+([a-z-]+)(?:\s+(.*?))?\s*$/;
 const DIRECTIVE_CLOSE_RE = /^:::\s*$/;
-const PLACEHOLDER_INLINE_RE = /\{\{(search|drawio|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:"(?:\\.|[^"\\])*"|[^{}"]|\{[^{])*?))?\}\}/g;
+const PLACEHOLDER_INLINE_RE = /\{\{(search|drawio|structurizr|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:"(?:\\.|[^"\\])*"|[^{}"]|\{[^{])*?))?\}\}/g;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 interface Param { name: string; value: string }
@@ -128,6 +130,7 @@ function splitAttrs(raw: string): { head: string; attrs: Param[] } {
 function placeholderParams(kind: string, raw: string | undefined): Param[] {
   if (raw === undefined || raw.trim() === '') return [];
   const { head, attrs } = splitAttrs(raw);
+  if (kind === 'structurizr') return [{ name: 'name', value: head }, ...attrs];
   if (kind === 'drawio') return [{ name: 'diagramName', value: head }, ...attrs];
   const params: Param[] = [];
   const headIsPair = head.includes('=');
