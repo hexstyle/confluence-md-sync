@@ -49,6 +49,7 @@ export const NATIVE_DIRECTIVES: Record<string, string> = {
 
 /** Строчные плейсхолдеры: имя → имя макроса. */
 export const NATIVE_PLACEHOLDERS: Record<string, string> = {
+  drawio: 'drawio',
   toc: 'toc',
   children: 'children',
   jira: 'jira',
@@ -61,6 +62,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
 /** Полный перечень макросов с нативной md-разметкой (для документации/UI). */
 export function nativeMacroList(): { macro: string; syntax: string }[] {
   return [
+    { macro: 'drawio', syntax: '{{drawio:diagram.drawio|format=macro}} | {{drawio:diagram.drawio|format=image}}' },
     { macro: 'info', syntax: '> [!INFO] Заголовок?' },
     { macro: 'note', syntax: '> [!NOTE] Заголовок?' },
     { macro: 'warning', syntax: '> [!WARNING] Заголовок?' },
@@ -81,7 +83,7 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
 const ADMONITION_FIRST_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
 const DIRECTIVE_OPEN_RE = /^:::\s+([a-z-]+)(?:\s+(.*?))?\s*$/;
 const DIRECTIVE_CLOSE_RE = /^:::\s*$/;
-const PLACEHOLDER_INLINE_RE = /\{\{(toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:[^{}]|\{[^{])*?))?\}\}/g;
+const PLACEHOLDER_INLINE_RE = /\{\{(drawio|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:[^{}]|\{[^{])*?))?\}\}/g;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 interface Param { name: string; value: string }
@@ -117,6 +119,7 @@ function splitAttrs(raw: string): { head: string; attrs: Param[] } {
 function placeholderParams(kind: string, raw: string | undefined): Param[] {
   if (raw === undefined || raw.trim() === '') return [];
   const { head, attrs } = splitAttrs(raw);
+  if (kind === 'drawio') return [{ name: 'diagramName', value: head }, ...attrs];
   const params: Param[] = [];
   const headIsPair = head.includes('=');
   if (headIsPair) {

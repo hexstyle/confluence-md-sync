@@ -1,6 +1,11 @@
 # Macro plugins — how to add a Confluence macro
 
 Each Confluence macro lives as **one file in this folder** (`src/macros/plugins/<name>.ts`).
+
+`drawio.ts` publishes `{{drawio:attachment-name}}` as a native draw.io macro.
+`|format=image` publishes the PNG while retaining XML in files[]. Add the XML to
+`files[]` and `attachment-name.png` to `images[]`. Names without extensions work.
+The editor saves both together; importing preserves viewer parameters and revision.
 A macro can travel in up to three directions; wire the ones it needs:
 
 | Direction | What | Where |

@@ -19,6 +19,7 @@ import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { defaultMacroRegistry } from '../macros/index.js';
 import { Markdown } from '../markdown/markdown.js';
+import { unpinDrawioStorage } from '../macros/plugins/drawio.js';
 
 export interface TableData {
   name: string;
@@ -325,6 +326,7 @@ export async function publishPage(
 
   // 2.5. Преобразование маркеров макросов в XHTML.
   storage = processMacros(storage, registry).toString();
+  storage = unpinDrawioStorage(storage);
 
   // 2.6. Баннер «страница управляется извне». Вставляется здесь, в storage —
   //   не в markdown — поэтому источник/round-trip его не содержат. Баннер

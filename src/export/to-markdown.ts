@@ -408,6 +408,18 @@ class Converter {
     const oneline = (v: string | undefined) => v !== undefined && !/[\n|{}]/.test(v) && !v.includes('}}');
 
     let candidate: string | null = null;
+    if ((name === 'drawio' || name === 'inc-drawio') && richBody === null) {
+      const filename = pmap.get('diagramName');
+      if (!filename || !oneline(filename) || /[/\\]/.test(filename)) return null;
+      if (params.some(p => !oneline(p.value) || /[|{}\n=]/.test(p.name))) return null;
+      const attrs = params.filter(p => p.name !== 'diagramName').map(p => `|${p.name}=${p.value}`).join('');
+      candidate = `{{drawio:${filename}${attrs}}}`;
+      if (name === 'inc-drawio') this.stats.normalized++;
+      else if (!this.readable && !this.verifyMacroMarker(el, candidate)) return null;
+      this.files.add(filename);
+      this.images.add(`${filename}.png`);
+      return candidate;
+    }
     const tag = Converter.NATIVE_ADMONITION_TAG[name];
     if (tag && richBody !== null) {
       // Панель: параметры — только title.
@@ -1183,6 +1195,14 @@ class Converter {
     const kids = elements(el.children);
     if (kids.length !== 1) throw new Unrepresentable();
     const ref = kids[0];
+    const drawioName = getAttr(el, 'ac:alt')?.match(/^drawio:(.+)$/)?.[1];
+    if (drawioName && ref.name === 'ri:attachment' && !/[{}|\n/\\]/.test(drawioName)) {
+      const preview = getAttr(ref, 'ri:filename');
+      if (preview && !/[{}|\n/\\]/.test(preview)) {
+        this.files.add(drawioName); this.images.add(preview);
+        return `{{drawio:${drawioName}|format=image${preview !== `${drawioName}.png` ? `|preview=${preview}` : ''}}}`;
+      }
+    }
 
     // attachments:'local' — картинка как HTML <img> (сохраняет размеры).
     // ri:attachment → локальный путь; ri:url → внешний URL как есть.

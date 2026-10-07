@@ -9,6 +9,7 @@ import { ConfluenceClient } from '../client/client.js';
 import type { ConfluenceConfig } from '../client/config.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
+import { drawioReferences } from '../markdown/drawio.js';
 
 export interface ExportPageOptions {
   /**
@@ -70,13 +71,16 @@ export async function exportPage(
     const dir = join(dirname(markdownPath), 'attachments');
     mkdirSync(dir, { recursive: true });
     for (const name of converted.attachmentRefs) {
-      const [att] = await client.listAttachments(pageId, name);
+      const diagram = drawioReferences(converted.markdown).find(d => d.name === name || d.preview === name);
+      const sourcePage = diagram?.pageId || pageId;
+      const [att] = await client.listAttachments(sourcePage, name);
       if (att === undefined) {
         console.warn(`[export] attachment '${name}' referenced by the page but not found`);
         continue;
       }
-      const link = att._links?.download ?? `/download/attachments/${pageId}/${encodeURIComponent(name)}`;
-      const data = await client.downloadAttachment(link);
+      const link = new URL(att._links?.download ?? `/download/attachments/${sourcePage}/${encodeURIComponent(name)}`, cfg.baseUrl);
+      if (diagram?.name === name && diagram.revision) link.searchParams.set('version', diagram.revision);
+      const data = await client.downloadAttachment(link.href);
       const path = join(dir, name);
       writeFileSync(path, data);
       downloaded.set(name, path);
