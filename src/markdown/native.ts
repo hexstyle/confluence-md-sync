@@ -49,6 +49,7 @@ export const NATIVE_DIRECTIVES: Record<string, string> = {
 
 /** Строчные плейсхолдеры: имя → имя макроса. */
 export const NATIVE_PLACEHOLDERS: Record<string, string> = {
+  search: 'search',
   drawio: 'drawio',
   toc: 'toc',
   children: 'children',
@@ -62,6 +63,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
 /** Полный перечень макросов с нативной md-разметкой (для документации/UI). */
 export function nativeMacroList(): { macro: string; syntax: string }[] {
   return [
+    { macro: 'search', syntax: '{{search:query=…|spacekey=…|type=page|maxLimit=10}}' },
     { macro: 'drawio', syntax: '{{drawio:diagram.drawio|format=macro}} | {{drawio:diagram.drawio|format=image}}' },
     { macro: 'info', syntax: '> [!INFO] Заголовок?' },
     { macro: 'note', syntax: '> [!NOTE] Заголовок?' },
@@ -83,7 +85,7 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
 const ADMONITION_FIRST_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
 const DIRECTIVE_OPEN_RE = /^:::\s+([a-z-]+)(?:\s+(.*?))?\s*$/;
 const DIRECTIVE_CLOSE_RE = /^:::\s*$/;
-const PLACEHOLDER_INLINE_RE = /\{\{(drawio|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:[^{}]|\{[^{])*?))?\}\}/g;
+const PLACEHOLDER_INLINE_RE = /\{\{(search|drawio|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:"(?:\\.|[^"\\])*"|[^{}"]|\{[^{])*?))?\}\}/g;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 interface Param { name: string; value: string }
@@ -105,14 +107,21 @@ function blockMarker(macroName: string, params: Param[], body: string): string {
 
 /** `a|b=c|d=e` → первый сегмент + пары; поведение как у parsePlaceholder. */
 function splitAttrs(raw: string): { head: string; attrs: Param[] } {
-  const parts = raw.split('|');
+  const parts = raw.match(/(?:"(?:\\.|[^"\\])*"|[^|"])+/g) ?? [];
+  const value = (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try { return JSON.parse(trimmed) as string; } catch { /* Unquoted legacy values remain literal. */ }
+    }
+    return trimmed;
+  };
   const attrs: Param[] = [];
   for (const part of parts.slice(1)) {
     const eq = part.indexOf('=');
     if (eq === -1) attrs.push({ name: part.trim(), value: '' });
-    else attrs.push({ name: part.slice(0, eq).trim(), value: part.slice(eq + 1).trim() });
+    else attrs.push({ name: part.slice(0, eq).trim(), value: value(part.slice(eq + 1)) });
   }
-  return { head: parts[0].trim(), attrs };
+  return { head: parts[0]?.trim() ?? '', attrs };
 }
 
 /** Параметры плейсхолдера → параметры макроса Confluence. */
@@ -124,9 +133,17 @@ function placeholderParams(kind: string, raw: string | undefined): Param[] {
   const headIsPair = head.includes('=');
   if (headIsPair) {
     const eq = head.indexOf('=');
-    attrs.unshift({ name: head.slice(0, eq).trim(), value: head.slice(eq + 1).trim() });
+    const v = head.slice(eq + 1).trim();
+    let decoded = v;
+    if (v.startsWith('"') && v.endsWith('"')) {
+      try { decoded = JSON.parse(v); } catch { /* Legacy unquoted values remain literal. */ }
+    }
+    attrs.unshift({ name: head.slice(0, eq).trim(), value: decoded });
   }
   switch (kind) {
+    case 'search':
+      if (!headIsPair && head !== '') params.push({ name: 'query', value: head });
+      break;
     case 'jira':
       if (!headIsPair && head !== '') params.push({ name: 'key', value: head });
       break;

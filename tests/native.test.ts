@@ -47,6 +47,24 @@ describe('nativeToMarkers', () => {
 });
 
 describe('render → storage', () => {
+  it('Search Results preserves structured space and every query parameter', () => {
+    const storage = '<ac:structured-macro ac:name="search"><ac:parameter ac:name="spacekey"><ri:space ri:space-key="COREDATA" /></ac:parameter><ac:parameter ac:name="query">FLW_DWH_PSP</ac:parameter><ac:parameter ac:name="type">page</ac:parameter><ac:parameter ac:name="maxLimit">25</ac:parameter><ac:parameter ac:name="lastModified">3w</ac:parameter><ac:parameter ac:name="contributor">analyst</ac:parameter></ac:structured-macro>';
+    const result = storageToMarkdown(storage);
+    expect(result.stats.fenced).toBe(0);
+    expect(result.markdown).toContain('{{search:');
+    expect(result.markdown).toContain('spacekey=COREDATA');
+    expect(compareStorage(storage, toStorage(result.markdown)).equal).toBe(true);
+  });
+
+  it('quoted native values preserve template braces, pipes and quotes', () => {
+    const query = '{{ Код }} | "quoted"';
+    const md = `{{search:query=${JSON.stringify(query)}|spacekey=COREDATA|type=page}}`;
+    const { storage, back } = roundTrip(md);
+    expect(storage).toContain('{{ Код }} | &quot;quoted&quot;');
+    expect(back).toContain(`query=${JSON.stringify(query)}`);
+    expect(compareStorage(storage, toStorage(back)).equal).toBe(true);
+  });
+
   it('nested directives keep their own closing delimiter before later sections', () => {
     const md = '::: expand Outer\n::: properties\n| K | V |\n| --- | --- |\n| a | b |\n:::\nAfter table\n:::\n\n## Outside';
     const st = toStorage(md);

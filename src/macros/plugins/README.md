@@ -2,6 +2,9 @@
 
 Each Confluence macro lives as **one file in this folder** (`src/macros/plugins/<name>.ts`).
 
+`search.ts` supports Search Results, including the structured `spacekey` reference.
+Native values containing braces or pipes use JSON quotes: `query="{{ Код }}"`.
+
 `drawio.ts` publishes `{{drawio:attachment-name}}` as a native draw.io macro.
 `|format=image` publishes the PNG while retaining XML in files[]. Add the XML to
 `files[]` and `attachment-name.png` to `images[]`. Names without extensions work.

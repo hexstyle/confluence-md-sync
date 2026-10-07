@@ -400,6 +400,7 @@ class Converter {
     info: 'INFO', note: 'NOTE', warning: 'WARNING', tip: 'TIP',
   };
   private static readonly NATIVE_PLACEHOLDER_NAME: Record<string, string> = {
+    search: 'search',
     toc: 'toc', children: 'children', jira: 'jira', status: 'status',
     anchor: 'anchor', detailssummary: 'properties-report',
     'portfolio-for-jira-plan': 'portfolio-for-jira-plan',
@@ -472,13 +473,13 @@ class Converter {
       const attrs: string[] = [];
       let head = '';
       for (const p of params) {
-        if (!oneline(p.value) || p.value.includes('|')) return null;
+        const value = /[|{}\n\r]/.test(p.value) || /^"/.test(p.value) ? JSON.stringify(p.value) : p.value;
         if (name === 'jira' && p.name === 'key' && head === '') { head = p.value; continue; }
         if (name === 'status' && p.name === 'title' && head === '') { head = p.value; continue; }
         if (name === 'anchor' && (p.name === 'name' || p.name === '') && head === '') { head = p.value; continue; }
         const attrName = name === 'jira' && p.name === 'jqlQuery' ? 'jql' : p.name;
         if (!/^[A-Za-z-]+$/.test(attrName)) return null;
-        attrs.push(`${attrName}=${p.value}`);
+        attrs.push(`${attrName}=${value}`);
       }
       const inner = [head, ...attrs].filter((s, i) => s !== '' || i > 0).join('|');
       candidate = inner === '' ? `{{${ph}}}` : `{{${ph}:${inner}}}`;
@@ -497,7 +498,9 @@ class Converter {
     for (const child of elements(el.children)) {
       if (child.name === 'ac:parameter') {
         const pname = getAttr(child, 'ac:name') ?? '';
-        params.push({ name: pname, value: decodeEntities(textContent(child.children)) });
+        const space = getAttr(el, 'ac:name') === 'search' && pname === 'spacekey'
+          ? elements(child.children).find(n => n.name === 'ri:space') : undefined;
+        params.push({ name: pname, value: space ? getAttr(space, 'ri:space-key') ?? '' : decodeEntities(textContent(child.children)) });
       } else if (child.name === 'ac:rich-text-body') richBody = child;
       else if (child.name === 'ac:plain-text-body') plainBody = child;
       else return null;
