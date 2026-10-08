@@ -6,3 +6,4 @@ extensionless XML attachments, parameters and missing dependency validation.
 Search tests preserve structured space references and quoted template queries.
 
 Structurizr tests cover PNG rendering, editable import and attachment validation.
+Render tests also cover repository assets, linked images, rich labels and anchors.

@@ -121,6 +121,8 @@ export interface RenderStorageOptions {
    * (обычная `<a href>`), пригодна для внешних URL и якорей.
    */
   linkResolver?: (href: string) => { title: string; space?: string } | null;
+  /** Local Markdown assets: attachment on this page, or a canonical repository URL. */
+  resourceResolver?: (href: string) => { attachment: string } | { url: string } | null;
 }
 
 export class MissingAttachmentUrlError extends Error {
@@ -173,18 +175,34 @@ export function renderToStorage(
   // манифеста). Только markdown-ссылки (`<a href>` из markdown-it); плейсхолдеры
   // {{file:}}/{{img:}} рендерятся ниже и сюда ещё не попали. Внешние URL/якоря
   // резолвер отсекает (возвращает null) — они остаются как есть.
-  if (opts.linkResolver) {
-    const resolve = opts.linkResolver;
-    html = html.replace(/<a href="([^"]*)">([\s\S]*?)<\/a>/g, (full, href: string, inner: string) => {
+  if (opts.resourceResolver) {
+    html = html.replace(/<img\b[^>]*\bsrc="([^"]*)"[^>]*\/?>/g, (full, href: string) => {
+      const decoded = unescapeHtml(href);
+      if (/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(decoded)) return full;
+      const target = opts.resourceResolver!(decoded);
+      if (!target) return full;
+      if ('url' in target) return full.replace(`src="${href}"`, `src="${escapeXmlAttr(target.url)}"`);
+      const alt = /\balt="([^"]*)"/.exec(full)?.[1];
+      return `<ac:image${alt ? ` ac:alt="${escapeXmlAttr(unescapeHtml(alt))}"` : ''}><ri:attachment ri:filename="${escapeXmlAttr(target.attachment)}" /></ac:image>`;
+    });
+  }
+  if (opts.linkResolver || opts.resourceResolver) {
+    html = html.replace(/<a href="([^"]*)"(?:\s+title="[^"]*")?>([\s\S]*?)<\/a>/g, (full, href: string, inner: string) => {
       const decoded = unescapeHtml(href);
       if (/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(decoded)) return full; // http(s):, mailto:, #anchor
-      const target = resolve(decoded);
-      if (!target) return full;
-      const text = unescapeHtml(inner.replace(/<[^>]+>/g, '')).trim();
-      const attrs: Array<[string, string]> = [];
-      if (target.space) attrs.push(['space', target.space]);
-      if (text) attrs.push(['text', text]);
-      return renderPageLink(target.title, attrs);
+      const target = opts.linkResolver?.(decoded);
+      const body = /<[^>]+>/.test(inner)
+        ? `<ac:link-body>${inner}</ac:link-body>`
+        : plainTextLinkBody(unescapeHtml(inner));
+      if (target) {
+        const space = target.space ? ` ri:space-key="${escapeXmlAttr(target.space)}"` : '';
+        const anchor = decoded.includes('#') ? ` ac:anchor="${escapeXmlAttr(decoded.slice(decoded.indexOf('#') + 1))}"` : '';
+        return `<ac:link${anchor}><ri:page ri:content-title="${escapeXmlAttr(target.title)}"${space} />${body}</ac:link>`;
+      }
+      const resource = opts.resourceResolver?.(decoded);
+      if (!resource) return full;
+      if ('url' in resource) return `<a href="${escapeXmlAttr(resource.url)}">${inner}</a>`;
+      return `<ac:link><ri:attachment ri:filename="${escapeXmlAttr(resource.attachment)}" />${body}</ac:link>`;
     });
   }
 

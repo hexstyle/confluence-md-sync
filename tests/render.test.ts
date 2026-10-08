@@ -47,6 +47,32 @@ describe('renderToStorage', () => {
     expect(renderToStorage('---', { images: new Map(), files: new Map() })).toContain('<hr />');
   });
 
+  it('preserves linked images and rich labels while resolving repository assets', () => {
+    const html = renderToStorage(
+      '[![Landscape](docs/landscape.svg)](docs/overview.md#context)\n\n[**Download** diagram](docs/source.drawio "Source") [Registry](docs/systems.json)',
+      urls,
+      {
+        linkResolver: href => href.startsWith('docs/overview.md') ? { title: 'Overview' } : null,
+        resourceResolver: href => href.endsWith('.json')
+          ? { url: 'https://gitlab.example/repo/-/blob/main/docs/systems.json' }
+          : { attachment: href.split('/').at(-1)! },
+      },
+    );
+    expect(html).toContain('<ac:link ac:anchor="context"><ri:page ri:content-title="Overview" /><ac:link-body><ac:image ac:alt="Landscape"><ri:attachment ri:filename="landscape.svg" /></ac:image></ac:link-body></ac:link>');
+    expect(html).toContain('<ri:attachment ri:filename="source.drawio" /><ac:link-body><strong>Download</strong> diagram</ac:link-body>');
+    expect(html).toContain('href="https://gitlab.example/repo/-/blob/main/docs/systems.json"');
+  });
+
+  it('does not resolve external images, anchors or code examples', () => {
+    const seen: string[] = [];
+    const html = renderToStorage('![External](https://example.org/image.png) [Anchor](#x) `![Code](local.png)`', urls, {
+      resourceResolver: href => { seen.push(href); return null; },
+    });
+    expect(seen).toEqual([]);
+    expect(html).toContain('src="https://example.org/image.png"');
+    expect(html).toContain('<code>![Code](local.png)</code>');
+  });
+
   it('throws for unknown placeholder', () => {
     expect(() => renderToStorage('{{img:zzz.png}}', urls)).toThrow(MissingAttachmentUrlError);
   });
