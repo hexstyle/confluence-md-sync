@@ -114,6 +114,7 @@ export {
 } from './publish/runner.js';
 
 // Export (storage → markdown) & round-trip
+export { storageLinks, rewriteStorageLinks, type StorageLink, type StorageLinkResolver } from './export/links.js';
 export {
   parseStorage,
   serializeStorage,

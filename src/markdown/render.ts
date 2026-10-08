@@ -120,7 +120,7 @@ export interface RenderStorageOptions {
    * docs-studio из манифеста). `null`/`undefined` — ссылка остаётся как есть
    * (обычная `<a href>`), пригодна для внешних URL и якорей.
    */
-  linkResolver?: (href: string) => { title: string; space?: string } | null;
+  linkResolver?: (href: string) => { title: string; space?: string } | { url: string } | null;
   /** Local Markdown assets: attachment on this page, or a canonical repository URL. */
   resourceResolver?: (href: string) => { attachment: string } | { url: string } | null;
 }
@@ -189,8 +189,9 @@ export function renderToStorage(
   if (opts.linkResolver || opts.resourceResolver) {
     html = html.replace(/<a href="([^"]*)"(?:\s+title="[^"]*")?>([\s\S]*?)<\/a>/g, (full, href: string, inner: string) => {
       const decoded = unescapeHtml(href);
-      if (/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(decoded)) return full; // http(s):, mailto:, #anchor
+      if (/^(?:#|(?:mailto|tel|javascript|data):)/i.test(decoded)) return full;
       const target = opts.linkResolver?.(decoded);
+      if (target && 'url' in target) return `<a href="${escapeXmlAttr(target.url)}">${inner}</a>`;
       const body = /<[^>]+>/.test(inner)
         ? `<ac:link-body>${inner}</ac:link-body>`
         : plainTextLinkBody(unescapeHtml(inner));
@@ -199,6 +200,7 @@ export function renderToStorage(
         const anchor = decoded.includes('#') ? ` ac:anchor="${escapeXmlAttr(decoded.slice(decoded.indexOf('#') + 1))}"` : '';
         return `<ac:link${anchor}><ri:page ri:content-title="${escapeXmlAttr(target.title)}"${space} />${body}</ac:link>`;
       }
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(decoded)) return full;
       const resource = opts.resourceResolver?.(decoded);
       if (!resource) return full;
       if ('url' in resource) return `<a href="${escapeXmlAttr(resource.url)}">${inner}</a>`;

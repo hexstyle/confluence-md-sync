@@ -9,3 +9,7 @@ redundant paragraph wrapper; this is reported as a normalized conversion.
 verify semantic equivalence; `xhtml.ts` parses storage without losing namespaced elements.
 
 Structurizr preview filenames restore native references, DSL and JSON attachments.
+
+`links.ts` collects and rewrites ordinary/native page links after batch destinations
+are allocated. Code and macro parameters stay intact; rich labels and anchors survive.
+`storageToMarkdown` and `exportPage` accept `linkResolver` for reverse mapping.

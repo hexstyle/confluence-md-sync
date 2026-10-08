@@ -8,3 +8,5 @@ Inline parameters accept JSON-quoted values for pipes, braces and line breaks.
 `structurizr.ts` validates DSL, JSON and view PNG dependencies, excluding code examples.
 `resourceResolver` resolves ordinary Markdown images/files to page attachments or
 repository URLs. Page links preserve rich labels, linked images and anchors.
+
+`linkResolver` also accepts explicit repository URLs and can return a stable page URL.

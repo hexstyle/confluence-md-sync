@@ -28,6 +28,7 @@ import type { MacroParam } from '../macros/types.js';
 import { renderToStorage } from '../markdown/render.js';
 import { compareStorage } from './canonical.js';
 import { NOTICE_MACRO_ID } from '../publish/notice.js';
+import { rewriteStorageLinks, type StorageLinkResolver } from './links.js';
 import {
   decodeEntities,
   elements,
@@ -41,6 +42,8 @@ import {
 } from './xhtml.js';
 
 export interface StorageToMarkdownOptions {
+  /** Map known page references to repository URLs after allocating all batch paths. */
+  linkResolver?: StorageLinkResolver;
   /** Known XML attachments; needed for image-mode diagrams without a .drawio suffix. */
   drawioNames?: string[];
   /** Реестр для проверки маркеров макросов (default: встроенный). */
@@ -96,6 +99,7 @@ export function storageToMarkdown(
   storage: string,
   opts: StorageToMarkdownOptions = {},
 ): StorageToMarkdownResult {
+  const rewritten = opts.linkResolver ? rewriteStorageLinks(storage, opts.linkResolver) : storage;
   const local = opts.attachments === 'local';
   const records = opts.tables === 'records';
   // 'local' и 'records' — заведомо не round-trip, поэтому включают readable-
@@ -108,7 +112,8 @@ export function storageToMarkdown(
     localPrefix: opts.localPrefix ?? 'attachments/',
     drawioNames: opts.drawioNames ?? [],
   });
-  const markdown = conv.blocksToMd(parseStorage(storage));
+  const markdown = conv.blocksToMd(parseStorage(rewritten));
+  if (rewritten !== storage) conv.stats.normalized++;
   const attachmentRefs = new Set<string>([...conv.images, ...conv.files]);
   for (const m of storage.matchAll(/ri:filename="([^"]*)"/g)) attachmentRefs.add(m[1]);
   return {

@@ -10,8 +10,10 @@ import type { ConfluenceConfig } from '../client/config.js';
 import type { MacroRegistry } from '../macros/registry.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
 import { drawioReferences, drawioAttachmentNames } from '../markdown/drawio.js';
+import type { StorageLinkResolver } from './links.js';
 
 export interface ExportPageOptions {
+  linkResolver?: StorageLinkResolver;
   /**
    * Точный путь до итогового md-файла. Альтернатива `outDir`. Аттачи (если
    * включены) кладутся в `attachments/` рядом с этим файлом.
@@ -61,6 +63,7 @@ export async function exportPage(
     mode: opts.mode,
     attachments: opts.attachments,
     tables: opts.tables,
+    linkResolver: opts.linkResolver,
   });
 
   const markdownPath = opts.outFile ?? join(opts.outDir ?? `./${pageId}`, 'page.md');

@@ -7,3 +7,5 @@ Search tests preserve structured space references and quoted template queries.
 
 Structurizr tests cover PNG rendering, editable import and attachment validation.
 Render tests also cover repository assets, linked images, rich labels and anchors.
+
+`links.test.ts` checks forward/reverse repository links and second-pass tree relinking.
