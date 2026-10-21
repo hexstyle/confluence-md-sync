@@ -59,8 +59,8 @@ if (process.env.CONFLUENCE_MACRO_FIXTURES) it('converts real ORP, vacations and 
     const result: unknown[] = [];
     const walk = (ns: XNode[]) => { for (const node of ns) if (node.kind === 'el') {
       if (node.name === 'ac:structured-macro') {
-        const params = node.children.filter(n => n.kind === 'el' && n.name === 'ac:parameter');
         const name = Object.fromEntries(node.attrs)['ac:name'];
+        const params = node.children.filter(n => n.kind === 'el' && n.name === 'ac:parameter' && !(name === 'jira' && ['server', 'serverId'].includes(Object.fromEntries(n.attrs)['ac:name'])));
         if (name !== 'info') result.push(canonicalize([{ ...node, children: params }]));
       }
       walk(node.children);

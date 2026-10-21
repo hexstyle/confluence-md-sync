@@ -21,3 +21,7 @@ hyperlinks and `display=link`. Image parameters are protected before GFM table p
 `note.ts` shares inline Note authoring with editors. Quoted bodies support title/icon;
 newlines create paragraphs while `<br>` remains a line break. `note-layout.ts` places
 Notes outside surrounding paragraphs, including table cells and inline formatting.
+
+`properties.ts` removes only leading duplicate synthetic Page Properties headings.
+
+`jira.ts` removes environment-specific Jira server parameters from imported Markdown.

@@ -28,7 +28,9 @@ import type { MacroParam } from '../macros/types.js';
 import { renderToStorage } from '../markdown/render.js';
 import { parsePlaceholder, placeholder } from '../markdown/placeholder.js';
 import { readInlineSyntax } from '../markdown/inline-syntax.js';
+import { portableJiraStorage } from '../markdown/jira.js';
 import { inlineNote } from '../markdown/note.js';
+import { isPropertiesHeading, normalizePropertiesTable } from '../markdown/properties.js';
 import { compareStorage } from './canonical.js';
 import { NOTICE_MACRO_ID } from '../publish/notice.js';
 import { rewriteStorageLinks, type StorageLinkResolver } from './links.js';
@@ -102,7 +104,8 @@ export function storageToMarkdown(
   storage: string,
   opts: StorageToMarkdownOptions = {},
 ): StorageToMarkdownResult {
-  const rewritten = opts.linkResolver ? rewriteStorageLinks(storage, opts.linkResolver) : storage;
+  const portable = portableJiraStorage(storage);
+  const rewritten = opts.linkResolver ? rewriteStorageLinks(portable, opts.linkResolver) : portable;
   const local = opts.attachments === 'local';
   const records = opts.tables === 'records';
   // 'local' и 'records' — заведомо не round-trip, поэтому включают readable-
@@ -239,6 +242,9 @@ class Converter {
           }
         }
         return this.paragraphMd(el.children);
+      }
+      if (el.name === 'blockquote' && !el.attrs.length) {
+        return this.blocksToMd(el.children).trimEnd().split('\n').map(line => line ? '> ' + line : '>').join('\n');
       }
       if (el.name === 'hr') return '---';
       if (el.name === 'ul' || el.name === 'ol') return this.listToMd(el);
@@ -473,15 +479,17 @@ class Converter {
       if (bodyEls.length !== 1 || nonWs.length !== 1 || bodyEls[0].name !== 'table') return null;
       const dp = [...pmap.entries()].map(([k, v]) => (oneline(v) && !/["\s]/.test(v) ? ` ${k}=${v}` : null));
       if (dp.some((x) => x === null)) return null;
+      const cleaned = normalizePropertiesTable(bodyEls[0]);
       let tableMd: string | null = null;
-      try { tableMd = this.tableToMd(bodyEls[0]); }
+      try { tableMd = this.tableToMd(cleaned.table); }
       catch (e) { if (!(e instanceof Unrepresentable)) throw e; }
       if (tableMd !== null) {
         candidate = `::: properties${dp.join('')}\n${tableMd}\n:::`;
+        if (cleaned.removed) { this.stats.normalized++; return candidate; }
       } else {
         // «Свойства страницы» обязаны жить md-таблицей: сложную таблицу
         // нормализуем в GFM (оформление теряется, текст сверяется рендером).
-        const norm = this.propertiesGridMd(bodyEls[0]);
+        const norm = this.propertiesGridMd(cleaned.table);
         if (norm === null) return null;
         const cand = `::: properties${dp.join('')}\n${norm.md}\n:::`;
         if (!this.readable && !this.verifyNormalizedDetails(cand, norm.rows)) return null;
@@ -692,11 +700,14 @@ class Converter {
       const cols = Math.max(...grid.map((r) => r.length));
       const norm = grid.map((r) => Array.from({ length: cols }, (_, i) => r[i] ?? ''));
       const keep = Array.from({ length: cols }, (_, i) => norm.some((r) => r[i] !== ''));
-      const rows = norm.map((r) => r.filter((_, i) => keep[i])).filter((r) => r.some((c) => c !== ''));
+      const retained = norm.map((r, i) => ({ cells: r.filter((_, j) => keep[j]), tr: trs[i] })).filter(r => r.cells.some(c => c !== ''));
+      const rows = retained.map(r => r.cells);
       const width = rows[0]?.length ?? 0;
       if (width === 0 || rows.some((r) => r.length !== width)) return null;
       const esc = (s: string) => s.replace(/\|/g, '\\|');
-      const header = width === 2 ? ['Поле', 'Значение'] : rows[0].map(() => ' ');
+      const first = retained[0].tr;
+      const hasHeader = isPropertiesHeading(first) || elements(first.children).every(c => c.name === 'th');
+      const header = hasHeader ? rows.shift()! : width === 2 ? ['Поле', 'Значение'] : rows[0].map(() => ' ');
       const line = (cells: string[]) => `| ${cells.map(esc).join(' | ')} |`;
       const md = [line(header), `| ${header.map(() => '---').join(' | ')} |`, ...rows.map(line)].join('\n');
       return { md, rows };
@@ -726,11 +737,7 @@ class Converter {
       if (!renderedTable) return false;
       const backNorm = this.propertiesGridMd(renderedTable);
       if (backNorm === null) return false;
-      const back = backNorm.rows;
-      const width = rows[0]?.length ?? 0;
-      const headerIsSynth = back.length > 0 &&
-        (width === 2 ? back[0][0] === 'Поле' && back[0][1] === 'Значение' : back[0].every((c) => c === ''));
-      const body = headerIsSynth ? back.slice(1) : back;
+      const body = backNorm.rows;
       if (body.length !== rows.length) return false;
       return body.every((r, i) => r.length === rows[i].length && r.every((c, j) => c === rows[i][j]));
     } catch {
@@ -1602,7 +1609,8 @@ function escapeMdText(raw: string, ctx: InlineCtx, readable = false): string {
         ? m[0]
         : escapePlain(dec, ctx, readable);
     } else {
-      out += m[0];
+      const decoded = decodeEntities(m[0]);
+      out += decoded === '"' || decoded === "'" ? decoded : m[0];
     }
     last = m.index + m[0].length;
   }

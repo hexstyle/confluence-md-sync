@@ -118,6 +118,15 @@ export class ConfluenceClient {
     );
   }
 
+  async getJiraServers(): Promise<{ id: string; name: string; selected?: boolean }[]> {
+    const response = await fetch(this.url('/rest/jiraanywhere/1.0/servers'), { headers: this.headers(), signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) await this.parseError(response, 'getJiraServers');
+    const data: unknown = await response.json();
+    if (!Array.isArray(data) || data.some(s => !s || typeof s.id !== 'string' || !s.id || typeof s.name !== 'string' || !s.name))
+      throw new Error('Confluence: invalid Jira server list');
+    return data as { id: string; name: string; selected?: boolean }[];
+  }
+
   // ── Pages ────────────────────────────────────────────────────────────
 
   async getPage(pageId: string): Promise<ConfluencePage> {

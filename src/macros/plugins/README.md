@@ -51,3 +51,6 @@ Structurizr and image-mode draw.io forward native image formatting parameters an
 
 `note.ts` renders block and inline Note through the same native rich-body macro.
 Inline Note IDs use normalized XHTML, preventing version churn after import.
+
+Page Properties repair only leading duplicate synthetic headings. Their IDs use the
+normalized rendered body, so importing the repaired table does not churn versions.

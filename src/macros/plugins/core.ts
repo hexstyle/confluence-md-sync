@@ -8,8 +8,10 @@
 import { Markdown } from '../../markdown/markdown.js';
 import { macro } from '../builder.js';
 import { paramMap, type MacroDefinition, type MacroPlugin } from '../types.js';
-import { pageLinkValue, structuredMacro } from '../xml.js';
+import { pageLinkValue, stableMacroId, structuredMacro } from '../xml.js';
 import { noteMacro } from './note.js';
+import { normalizePropertiesTable } from '../../markdown/properties.js';
+import { parseStorage, serializeStorage } from '../../export/xhtml.js';
 
 /** Rich-body macro that forwards the listed params (if present). */
 function richBodyMacro(name: string, allowedParams?: string[]): MacroDefinition {
@@ -19,7 +21,10 @@ function richBodyMacro(name: string, allowedParams?: string[]): MacroDefinition 
       const params = ctx.params
         .filter((p) => !allowedParams || allowedParams.includes(p.name))
         .map((p) => ({ name: p.name, value: p.value }));
-      return structuredMacro(name, ctx.macroId, { params, richBody: ctx.body });
+      const richBody = name === 'details' ? serializeStorage(parseStorage(ctx.body).map(node =>
+        node.kind === 'el' && node.name === 'table' ? normalizePropertiesTable(node).table : node)) : ctx.body;
+      const macroId = name === 'details' ? stableMacroId(JSON.stringify([richBody, params])) : ctx.macroId;
+      return structuredMacro(name, macroId, { params, richBody });
     },
   };
 }

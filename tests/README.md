@@ -17,3 +17,9 @@ Structurizr formatting, code examples and unsafe hyperlink rejection.
 `inline-note.test.ts` covers cell Notes, nested page/Jira/file, escaping, code literals,
 paragraphs versus line breaks and faithful fallback. `publish.test.ts` verifies that
 importing and republishing a Note adds no page version.
+
+`properties.test.ts` covers duplicate headings, styled tables, preserved data and repeated cycles.
+
+`jira.test.ts` checks portable references and target-side default server resolution.
+`properties-live.test.ts` runs three actual Confluence cycles on a disposable page;
+set CONFLUENCE_TEST_BASE_URL/TOKEN/PARENT_ID/SPACE_KEY explicitly. Cleanup deletes the test page.

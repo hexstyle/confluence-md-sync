@@ -36,6 +36,7 @@ beforeAll(async () => {
         res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(obj));
       };
 
+      if (url === '/rest/jiraanywhere/1.0/servers' && method === 'GET') return send(200, [{ id: 'target-jira', name: 'Target Jira', selected: true }]);
       // content property: GET (read) и PUT (update) по /property/{key}
       if (/^\/rest\/api\/content\/[^/]+\/property\/[^/?]+$/.test(url)) {
         if (method === 'GET') {
@@ -216,5 +217,28 @@ describe('inline Note publication', () => {
     expect(imported).toContain('{{note:');
     const second = await pub({ markdown: imported });
     expect(second.updated).toBe(false); expect(state.puts).toBe(1);
+  });
+});
+
+describe('portable imported pages', () => {
+  it('replaces a copied managed notice from the actual page binding', async () => {
+    await pub({ managedNotice: { linkUrl: 'https://studio.test/?p=1&f=source.md' } });
+    const markdown = storageToMarkdown(state.page.storage).markdown;
+    expect(markdown).not.toContain('source.md');
+    const published = await pub({ markdown, managedNotice: { linkUrl: 'https://studio.test/?p=1&f=destination.md' } });
+    expect(published.storage).toContain('destination.md'); expect(published.storage).not.toContain('source.md');
+    const repeated = await pub({ markdown, managedNotice: { linkUrl: 'https://studio.test/?p=1&f=destination.md' } });
+    expect(repeated.updated).toBe(false);
+  });
+  it('publishes repeated imported properties and portable Jira without growing the page version', async () => {
+    const markdown = '::: properties\n| Поле | Значение |\n| --- | --- |\n| Поле | Значение |\n| Код | DS_TEST |\n| Jira | {{jira:DR-96}} |\n:::\n';
+    await pub({ markdown });
+    for (let i = 0; i < 3; i++) {
+      const imported = storageToMarkdown(state.page.storage).markdown;
+      expect(imported.match(/\| Поле \| Значение \|/g)).toHaveLength(1);
+      expect(imported).not.toContain('serverId');
+      expect((await pub({ markdown: imported })).updated).toBe(false);
+    }
+    expect(state.puts).toBe(1); expect(state.page.storage).toContain('target-jira');
   });
 });

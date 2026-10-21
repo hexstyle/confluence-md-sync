@@ -5,3 +5,6 @@ draw.io XML belongs in files[], its matching PNG in images[]. Native macros use 
 latest target-page attachment version; old Confluence revision/page pins are removed.
 `remote.ts` resolves URLs, `notice.ts` creates the managed-page banner, and `runner.ts`
 runs multi-page plans. Tests use a local HTTP server rather than live Confluence.
+
+`jira.ts` resolves the target Confluence default Jira connection at publication;
+ambiguous or unavailable configuration produces an explicit error.

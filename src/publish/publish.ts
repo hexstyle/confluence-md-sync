@@ -14,6 +14,7 @@ import {
   type RenderStorageOptions,
 } from '../markdown/render.js';
 import { validateMarkdown } from '../markdown/validate.js';
+import { resolveJiraMacros } from './jira.js';
 import { applyManagedNotice, type ManagedNoticeOptions } from './notice.js';
 import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
@@ -327,6 +328,7 @@ export async function publishPage(
   // 2.5. Преобразование маркеров макросов в XHTML.
   storage = processMacros(storage, registry).toString();
   storage = unpinDrawioStorage(storage);
+  if (!opts.dryRun) storage = await resolveJiraMacros(storage, cfg);
 
   // 2.6. Баннер «страница управляется извне». Вставляется здесь, в storage —
   //   не в markdown — поэтому источник/round-trip его не содержат. Баннер

@@ -83,6 +83,7 @@ export {
 } from './pages/tables.js';
 
 // Publish
+export { resolveJiraMacros } from './publish/jira.js';
 export {
   publishPage,
   computeContentHash,

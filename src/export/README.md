@@ -22,3 +22,6 @@ the surrounding macro structure; native user references preserve mention identit
 Cell/in-paragraph Notes export as `{{note:"Markdown body"|title=…|icon=false}}`.
 Standalone Notes retain block admonitions. Complex cell Note bodies preserve faithful
 storage fences in both modes, rather than silently losing structure or highlighting.
+
+Page Properties reuse existing headings; repeated import/publish does not add data rows.
+Literal quote entities and plain blockquotes use equivalent Markdown; faithful mode retains styles.
