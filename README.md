@@ -496,3 +496,19 @@ the `v*` tag triggers the npm publish workflow (tag must match
 ## License
 
 [MIT](LICENSE)
+
+### Inline Note and native image formatting
+
+`{{note:Required category}}` works in prose and GFM cells. Nested `{{page:…}}`,
+`{{jira:…}}` and `{{file:…}}` stay editable. Escape literal `|`, `{`, `}`, `:` with
+backslashes. A newline (or `\n` in a plain body) creates a paragraph; `<br>` keeps
+a line break within the same paragraph. For parameters or a multi-paragraph cell,
+use a JSON-quoted body: `{{note:"First\nSecond<br>line"|title=Context|icon=false}}`.
+Block `> [!NOTE]` is unchanged. Complex imported cell Notes retain storage losslessly.
+
+Native attachment images forward Confluence image parameters: width/height, align,
+border, thumbnail, title (Data Center caption), alt, hspace/vspace, class/style and
+queryparams (effects). `link=https://…` hyperlinks an image; `display=link` displays
+the attachment as a link. Structurizr and optional draw.io image mode share these
+parameters; draw.io uses its native macro by default. Values containing separators
+can use JSON quotes. Browser-safe authoring helpers are exported from `/syntax`.

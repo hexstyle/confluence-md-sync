@@ -9,6 +9,7 @@ import { Markdown } from '../../markdown/markdown.js';
 import { macro } from '../builder.js';
 import { paramMap, type MacroDefinition, type MacroPlugin } from '../types.js';
 import { pageLinkValue, structuredMacro } from '../xml.js';
+import { noteMacro } from './note.js';
 
 /** Rich-body macro that forwards the listed params (if present). */
 function richBodyMacro(name: string, allowedParams?: string[]): MacroDefinition {
@@ -112,7 +113,7 @@ export const coreMacrosPlugin: MacroPlugin = {
   macros: [
     // Rich-body containers
     richBodyMacro('expand', ['title']),
-    richBodyMacro('note', ['title', 'icon']),
+    noteMacro,
     richBodyMacro('info', ['title', 'icon']),
     richBodyMacro('warning', ['title', 'icon']),
     richBodyMacro('tip', ['title', 'icon']),

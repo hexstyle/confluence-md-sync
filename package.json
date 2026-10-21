@@ -1,6 +1,6 @@
 {
   "name": "confluence-md-sync",
-  "version": "0.11.2",
+  "version": "0.12.0",
   "description": "Publish Markdown to Confluence (Data Center & Cloud): idempotent page sync, attachment dedup, tables and a pluggable macro system",
   "keywords": [
     "confluence",
@@ -40,6 +40,10 @@
     "./macros": {
       "types": "./dist/macros/index.d.ts",
       "import": "./dist/macros/index.js"
+    },
+    "./syntax": {
+      "types": "./dist/syntax.d.ts",
+      "import": "./dist/syntax.js"
     }
   },
   "bin": {

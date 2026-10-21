@@ -31,6 +31,7 @@
  */
 
 import { escapeParamValue } from '../macros/builder.js';
+import { replaceInlineSyntax } from './inline-syntax.js';
 
 /** Панели: тег admonition → имя макроса. */
 export const NATIVE_ADMONITIONS: Record<string, string> = {
@@ -68,7 +69,7 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
     { macro: 'structurizr', syntax: '{{structurizr:workspace.dsl|view=containers}}' },
     { macro: 'drawio', syntax: '{{drawio:diagram.drawio|format=macro}} | {{drawio:diagram.drawio|format=image}}' },
     { macro: 'info', syntax: '> [!INFO] Заголовок?' },
-    { macro: 'note', syntax: '> [!NOTE] Заголовок?' },
+    { macro: 'note', syntax: '> [!NOTE] Заголовок? | {{note:Текст}}' },
     { macro: 'warning', syntax: '> [!WARNING] Заголовок?' },
     { macro: 'tip', syntax: '> [!TIP] Заголовок?' },
     { macro: 'details', syntax: '::: properties [id=…] [hidden=true] … :::' },
@@ -87,7 +88,7 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
 const ADMONITION_FIRST_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
 const DIRECTIVE_OPEN_RE = /^:::\s+([a-z-]+)(?:\s+(.*?))?\s*$/;
 const DIRECTIVE_CLOSE_RE = /^:::\s*$/;
-const PLACEHOLDER_INLINE_RE = /\{\{(search|drawio|structurizr|toc|children|jira|status|anchor|properties-report|portfolio-for-jira-plan)(?::((?:"(?:\\.|[^"\\])*"|[^{}"]|\{[^{])*?))?\}\}/g;
+
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 
 interface Param { name: string; value: string }
@@ -169,8 +170,7 @@ function placeholderParams(kind: string, raw: string | undefined): Param[] {
 }
 
 function replaceInline(line: string): string {
-  return line.replace(PLACEHOLDER_INLINE_RE, (_full, kind: string, raw: string | undefined) =>
-    inlineMarker(NATIVE_PLACEHOLDERS[kind], placeholderParams(kind, raw)));
+  return replaceInlineSyntax(line, ref => ref.id in NATIVE_PLACEHOLDERS ? inlineMarker(NATIVE_PLACEHOLDERS[ref.id], placeholderParams(ref.id, ref.body)) : undefined);
 }
 
 /** Параметры директивы: токены `k=v` (значение можно в кавычках) + свободный текст → title. */

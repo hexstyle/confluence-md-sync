@@ -1,5 +1,12 @@
 import MarkdownIt from 'markdown-it';
-import { nativeToMarkers } from './native.js';
+import { nativeToMarkers, NATIVE_PLACEHOLDERS } from './native.js';
+import { parsePlaceholder, placeholder } from './placeholder.js';
+import { attachmentImage } from './image.js';
+import { replaceInlineSyntax, unescapeTablePipes } from './inline-syntax.js';
+import { parseInlineNote } from './note.js';
+import { renderInlineNote } from '../macros/plugins/note.js';
+import { liftInlineNotes } from './note-layout.js';
+export { PLACEHOLDER_RE, parsePlaceholder, type PlaceholderRef } from './placeholder.js';
 
 // xhtmlOut: true — Confluence storage format = XHTML, void-элементы
 // (<hr/>, <br/>, <img/>) обязаны быть самозакрывающимися.
@@ -23,28 +30,6 @@ const mdNoLinkify = new MarkdownIt({ ...mdOptions, linkify: false });
  *   {{img:chart.png|thumbnail=true|height=250}}
  *   {{page:Другая страница|space=DOCS|text=якорный текст}}
  */
-export const PLACEHOLDER_RE = /\{\{(img|file|page):([^}]+)\}\}/g;
-
-export interface PlaceholderRef {
-  /** Имя файла (img/file) или title страницы (page). */
-  name: string;
-  /** `|key=value`-атрибуты в порядке записи. */
-  attrs: Array<[string, string]>;
-}
-
-/** Разбирает содержимое плейсхолдера: `name|k=v|k2=v2`. */
-export function parsePlaceholder(body: string): PlaceholderRef {
-  const parts = body.split('|');
-  const name = parts[0].trim();
-  const attrs: Array<[string, string]> = [];
-  for (const part of parts.slice(1)) {
-    const eq = part.indexOf('=');
-    if (eq === -1) attrs.push([part.trim(), '']);
-    else attrs.push([part.slice(0, eq).trim(), part.slice(eq + 1).trim()]);
-  }
-  return { name, attrs };
-}
-
 export interface ExtractedPlaceholders {
   images: string[];
   files: string[];
@@ -55,12 +40,15 @@ export function extractPlaceholders(markdown: string): ExtractedPlaceholders {
   const images = new Set<string>();
   const files = new Set<string>();
   const pages = new Set<string>();
-  for (const m of markdown.matchAll(PLACEHOLDER_RE)) {
-    const { name } = parsePlaceholder(m[2]);
-    if (m[1] === 'img') images.add(name);
-    else if (m[1] === 'file') files.add(name);
-    else pages.add(name);
-  }
+  const collect = (source: string) => replaceInlineSyntax(source, ref => {
+    if (ref.id === 'note') collect(parseInlineNote(ref.body).text);
+    else if (['img', 'file', 'page'].includes(ref.id)) {
+      const { name } = parsePlaceholder(ref.body);
+      (ref.id === 'img' ? images : ref.id === 'file' ? files : pages).add(name);
+    }
+    return undefined;
+  });
+  collect(markdown);
   return { images: [...images], files: [...files], pages: [...pages] };
 }
 
@@ -84,12 +72,13 @@ function escapeXmlAttr(s: string): string {
  */
 export function renameImagePlaceholders(markdown: string, renames: Map<string, string>): string {
   if (renames.size === 0) return markdown;
-  return markdown.replace(/\{\{img:([^}]+)\}\}/g, (full, rawBody: string) => {
-    const { name, attrs } = parsePlaceholder(rawBody);
+  return replaceInlineSyntax(markdown, ref => {
+    if (ref.id !== 'img') return;
+    const full = ref.raw;
+    const { name, attrs } = parsePlaceholder(ref.body);
     const renamed = renames.get(name);
     if (!renamed) return full;
-    const attrStr = attrs.map(([k, v]) => `|${k}=${v}`).join('');
-    return `{{img:${renamed}${attrStr}}}`;
+    return placeholder('img', renamed, attrs);
   });
 }
 
@@ -132,26 +121,7 @@ export class MissingAttachmentUrlError extends Error {
   }
 }
 
-/**
- * Превращает Markdown в Confluence storage format.
- *
- * Логика двушаговая:
- *   1) markdown-it рендерит сам Markdown (без знания про плейсхолдеры).
- *      `{{img:foo}}` и `{{file:foo}}` для markdown-it — обычный текст
- *      без спецсимволов, доходят до выхода нетронутыми (могут быть
- *      обёрнуты в <p>...</p>, что нас устраивает).
- *   2) В готовом HTML регуляркой подставляем `<img src=URL/>` и
- *      `<a href=URL>filename</a>` на места плейсхолдеров. URL обязан
- *      существовать для каждого плейсхолдера — иначе
- *      MissingAttachmentUrlError.
- *
- * Раньше использовалась схема через sentinel-токены (` CFLIMG_0 `):
- * markdown-it трогал окружающие пробелы при упаковке в <p>, sentinel
- * терял пробелы, итоговый .split() не находил совпадения и в Confluence
- * вместо картинки попадал кусок «CFLIMG_0». Прямая регекс-замена по
- * HTML этой проблемы лишена — `{{img:foo}}` мимо markdown-it проходит
- * посимвольно.
- */
+/** Render Markdown after shielding authored macros from GFM table/inline parsing. */
 export function renderToStorage(
   markdown: string,
   urls: AttachmentUrls,
@@ -159,9 +129,60 @@ export function renderToStorage(
 ): string {
   // Нативный md-синтаксис макросов (панели, ::: properties, {{toc}} …) —
   // сахар над маркерами: переписываем до markdown-it (см. native.ts).
+  const placeholders: Array<{ id: string; body: string; raw: string }> = [];
+  let prefix = 'CFLATTACHTOKEN'; while (markdown.includes(prefix)) prefix += 'X';
+  markdown = replaceInlineSyntax(markdown, ref => {
+    if (!['img', 'file', 'page', 'note'].includes(ref.id) && !(ref.id in NATIVE_PLACEHOLDERS)) return;
+    const line = markdown.slice(markdown.lastIndexOf('\n', ref.from - 1) + 1, ref.from);
+    const cell = line.trimStart().startsWith('|');
+    placeholders.push(cell ? { ...ref, raw: unescapeTablePipes(ref.raw), body: unescapeTablePipes(ref.body) } : ref);
+    return `${prefix}${placeholders.length - 1}TOKEN`;
+  });
   markdown = nativeToMarkers(markdown);
   const renderer = opts.linkify === false ? mdNoLinkify : md;
   let html = renderer.render(markdown);
+
+  const renderPlaceholder = (kind: string, body: string): string => {
+    const { name, attrs } = parsePlaceholder(body);
+    if (kind === 'page') {
+      return renderPageLink(name, attrs);
+    }
+    if (kind === 'img') {
+      if (opts.imageStyle === 'attachment') {
+        return attachmentImage(name, attrs);
+      }
+      const url = urls.images.get(name);
+      if (!url) {
+        throw new MissingAttachmentUrlError(
+          `No uploaded URL for image '${name}' — was it included in publishPage().images and successfully uploaded?`,
+        );
+      }
+      return `<img src="${escapeXmlAttr(url)}" alt="${escapeXmlAttr(name)}" />`;
+    }
+    if (opts.fileStyle === 'attachment') {
+      const text = attrs.find(([k]) => k === 'text')?.[1];
+      const body = text !== undefined ? plainTextLinkBody(text) : '';
+      return `<ac:link><ri:attachment ri:filename="${escapeXmlAttr(name)}" />${body}</ac:link>`;
+    }
+    const url = urls.files.get(name);
+    if (!url) {
+      throw new MissingAttachmentUrlError(
+        `No uploaded URL for file '${name}' — was it included in publishPage().files and successfully uploaded?`,
+      );
+    }
+    return `<a href="${escapeXmlAttr(url)}">${escapeXmlAttr(name)}</a>`;
+  };
+  html = html.replace(new RegExp(prefix + '(\\d+)TOKEN', 'g'), (_full, index: string) => {
+    const ref = placeholders[Number(index)];
+    if (ref.id === 'note') {
+      const note = parseInlineNote(ref.body);
+      const body = renderToStorage(note.text.replace(/\r?\n/g, '\n\n'), urls, opts);
+      return renderInlineNote(body.trim(), note.attrs);
+    }
+    return ['img', 'file', 'page'].includes(ref.id) ? renderPlaceholder(ref.id, ref.body) : nativeToMarkers(ref.raw);
+  });
+
+  html = html.replace(/<p>((?:\s*<!-- MACRO:start:[^>]* -->\s*<!-- MACRO:end:[^>]* -->\s*)+)<\/p>/g, '$1');
 
   // ```confluence-storage — транспорт для дословного XHTML (ac:/ri:-теги
   // markdown-it сквозь себя не пропускает). Fence рендерится в экранированный
@@ -208,39 +229,7 @@ export function renderToStorage(
     });
   }
 
-  return html.replace(PLACEHOLDER_RE, (_full, kind, rawBody) => {
-    const { name, attrs } = parsePlaceholder(String(rawBody));
-    if (kind === 'page') {
-      return renderPageLink(name, attrs);
-    }
-    if (kind === 'img') {
-      if (opts.imageStyle === 'attachment') {
-        const acAttrs = attrs
-          .map(([k, v]) => ` ac:${k}="${escapeXmlAttr(v)}"`)
-          .join('');
-        return `<ac:image${acAttrs}><ri:attachment ri:filename="${escapeXmlAttr(name)}" /></ac:image>`;
-      }
-      const url = urls.images.get(name);
-      if (!url) {
-        throw new MissingAttachmentUrlError(
-          `No uploaded URL for image '${name}' — was it included in publishPage().images and successfully uploaded?`,
-        );
-      }
-      return `<img src="${escapeXmlAttr(url)}" alt="${escapeXmlAttr(name)}" />`;
-    }
-    if (opts.fileStyle === 'attachment') {
-      const text = attrs.find(([k]) => k === 'text')?.[1];
-      const body = text !== undefined ? plainTextLinkBody(text) : '';
-      return `<ac:link><ri:attachment ri:filename="${escapeXmlAttr(name)}" />${body}</ac:link>`;
-    }
-    const url = urls.files.get(name);
-    if (!url) {
-      throw new MissingAttachmentUrlError(
-        `No uploaded URL for file '${name}' — was it included in publishPage().files and successfully uploaded?`,
-      );
-    }
-    return `<a href="${escapeXmlAttr(url)}">${escapeXmlAttr(name)}</a>`;
-  });
+  return placeholders.some(ref => ref.id === 'note') ? liftInlineNotes(html) : html;
 }
 
 function renderPageLink(title: string, attrs: Array<[string, string]>): string {

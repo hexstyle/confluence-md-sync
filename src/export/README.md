@@ -9,7 +9,13 @@ redundant paragraph wrapper; this is reported as a normalized conversion.
 verify semantic equivalence; `xhtml.ts` parses storage without losing namespaced elements.
 
 Structurizr preview filenames restore native references, DSL and JSON attachments.
+Image formatting and native Data Center captions survive Structurizr/draw.io conversion.
+Quoted image values preserve separators, braces and links inside GFM tables.
 
 `links.ts` collects and rewrites ordinary/native page links after batch destinations
 are allocated. Code and macro parameters stay intact; rich labels and anchors survive.
 `storageToMarkdown` and `exportPage` accept `linkResolver` for reverse mapping.
+
+Cell/in-paragraph Notes export as `{{note:"Markdown body"|title=…|icon=false}}`.
+Standalone Notes retain block admonitions. Complex cell Note bodies preserve faithful
+storage fences in both modes, rather than silently losing structure or highlighting.

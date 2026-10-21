@@ -45,3 +45,7 @@ A macro can travel in up to three directions; wire the ones it needs:
 
 `structurizr.ts` renders `{{structurizr:workspace.dsl|view=key}}` as a PNG attachment.
 DSL and JSON remain downloadable attachments; image filenames retain the view key for imports.
+Structurizr and image-mode draw.io forward native image formatting parameters and hyperlinks.
+
+`note.ts` renders block and inline Note through the same native rich-body macro.
+Inline Note IDs use normalized XHTML, preventing version churn after import.

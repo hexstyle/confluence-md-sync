@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { publishPage } from '../src/publish/publish.js';
+import { storageToMarkdown } from '../src/export/to-markdown.js';
 import type { ConfluenceConfig } from '../src/client/config.js';
 
 // Встроенный фейк Confluence REST: держит одну страницу и одно content
@@ -203,5 +204,17 @@ describe('publishPage managed-notice banner', () => {
 
   it('fails fast when linkUrl is missing', async () => {
     await expect(pub({ managedNotice: { linkUrl: '' } })).rejects.toThrow(/managedNotice\.linkUrl is required/);
+  });
+});
+
+
+describe('inline Note publication', () => {
+  it('imports a cell Note and republishes without adding another page version', async () => {
+    const markdown = '| Artifact | Description |\n| --- | --- |\n| Buffer | Before {{note:Required<br>line}} after |';
+    const first = await pub({ markdown }); expect(first.updated).toBe(true);
+    const imported = storageToMarkdown(first.storage).markdown;
+    expect(imported).toContain('{{note:');
+    const second = await pub({ markdown: imported });
+    expect(second.updated).toBe(false); expect(state.puts).toBe(1);
   });
 });

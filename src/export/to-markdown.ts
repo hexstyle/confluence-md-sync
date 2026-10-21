@@ -26,6 +26,9 @@ import { processMacros, type MacroRegistry } from '../macros/registry.js';
 import { defaultMacroRegistry } from '../macros/index.js';
 import type { MacroParam } from '../macros/types.js';
 import { renderToStorage } from '../markdown/render.js';
+import { parsePlaceholder, placeholder } from '../markdown/placeholder.js';
+import { readInlineSyntax } from '../markdown/inline-syntax.js';
+import { inlineNote } from '../markdown/note.js';
 import { compareStorage } from './canonical.js';
 import { NOTICE_MACRO_ID } from '../publish/notice.js';
 import { rewriteStorageLinks, type StorageLinkResolver } from './links.js';
@@ -241,6 +244,7 @@ class Converter {
       if (el.name === 'ul' || el.name === 'ol') return this.listToMd(el);
       if (el.name === 'table') {
         // tables:'records' — любую таблицу разворачиваем в записи.
+        if (this.hasComplexNote(el.children)) return this.fence(serializeStorage([el]));
         if (this.tablesAsRecords) return this.recordsTable(el);
         try {
           return this.tableToMd(el);
@@ -854,6 +858,24 @@ class Converter {
     return [row(header), row(sep), ...bodyRows.map(row)].join('\n');
   }
 
+  /** Only paragraphs with representable inline content; complex Notes keep storage. */
+  private inlineNoteMd(el: XElement): string | null {
+    const parts = this.macroParts(el);
+    if (!parts?.richBody || parts.plainBody || parts.params.some(p => !['title', 'icon'].includes(p.name))) return null;
+    const readable = this.readable; this.readable = false;
+    try {
+      const nodes = parts.richBody.children.filter(n => n.kind !== 'text' || n.raw.trim());
+      if (!nodes.length || nodes.some(n => n.kind !== 'el' || n.name !== 'p' || n.attrs.length)) return null;
+      const text = nodes.map(n => this.inlineToMd((n as XElement).children, { cell: true })).join('\n');
+      const candidate = inlineNote(text, parts.params.map(p => [p.name, p.value]));
+      return this.verifyMacroMarker(el, candidate) ? candidate : null;
+    } catch (e) { if (!(e instanceof Unrepresentable)) throw e; return null; }
+    finally { this.readable = readable; }
+  }
+  private hasComplexNote(nodes: XNode[]): boolean {
+    return nodes.some(n => n.kind === 'el' && ((n.name === 'ac:structured-macro' && getAttr(n, 'ac:name') === 'note' && this.inlineNoteMd(n) === null) || this.hasComplexNote(n.children)));
+  }
+
   private cellMd(cell: XElement): string {
     // Единственный <p> внутри ячейки — разворачиваем (типичная форма).
     let content = cell.children;
@@ -862,7 +884,8 @@ class Converter {
         content.every((n) => n.kind !== 'text' || /^[ \t\r\n]*$/.test(n.raw))) {
       content = els[0].children;
     }
-    const md = this.inlineToMd(content, { cell: true }).trim();
+    const hasNote = content.some(n => n.kind === 'el' && n.name === 'ac:structured-macro' && getAttr(n, 'ac:name') === 'note');
+    const md = (hasNote ? content.map(n => n.kind === 'el' && n.name === 'p' && !n.attrs.length ? this.inlineToMd(n.children, { cell: true }) : this.inlineToMd([n], { cell: true })).join('') : this.inlineToMd(content, { cell: true })).trim();
     if (md.includes('\n')) throw new Unrepresentable();
     // Пайпы экранируем один раз над всей ячейкой — покрывает и текст, и
     // плейсхолдеры {{img:…|…}} (которые минуют инлайн-экранирование).
@@ -1164,6 +1187,16 @@ class Converter {
         }
         return this.readable ? escapeMdText(alt, ctx, true) : this.rawInline(el, ctx);
       }
+      case 'ac:structured-macro': {
+        if (getAttr(el, 'ac:name') === 'note') {
+          const note = this.inlineNoteMd(el); if (note !== null) return note;
+          throw new Unrepresentable();
+        }
+        const native = this.tryNativeMd(el, getAttr(el, 'ac:name') ?? '');
+        if (native !== null && !native.includes('\n')) return native;
+        if (this.readable) return escapeMdText(textContent(el.children), ctx, true);
+        throw new Unrepresentable();
+      }
       case 'ac:image':
         return this.acImageToMd(el);
       case 'ac:link':
@@ -1206,6 +1239,14 @@ class Converter {
     const href = getAttr(el, 'href') ?? '';
     const inner = this.inlineToMd(el.children, ctx);
     const onlyHref = el.attrs.length === 1 && el.attrs[0][0] === 'href';
+    const children = elements(el.children);
+    if (onlyHref && children.length === 1 && children[0].name === 'ac:image' && el.children.every(n => n.kind !== 'text' || !n.raw.trim())) {
+      const image = readInlineSyntax(this.acImageToMd(children[0]), 0);
+      if (image && ['img', 'structurizr', 'drawio'].includes(image.id)) {
+        const ref = parsePlaceholder(image.body);
+        return placeholder(image.id, ref.name, [...ref.attrs, ['link', href]]);
+      }
+    }
     if ((onlyHref || this.readable) && SAFE_URL_RE.test(href) && !/[[\]]/.test(inner)) {
       return `[${inner}](${href})`; // readable: доп. атрибуты ссылки отбрасываются
     }
@@ -1223,7 +1264,9 @@ class Converter {
       const view = new TextDecoder('utf-8').decode(Uint8Array.from(architecture[2].match(/../g)!, b => parseInt(b, 16)));
       if (view && !/[{}|\n\uFFFD]/.test(view)) {
         this.files.add(architecture[1]); this.files.add(architecture[1].replace(/\.dsl$/, '.json')); this.images.add(filename);
-        return `{{structurizr:${architecture[1]}|view=${view}}}`;
+        const attrs = el.attrs.map(([key]) => [key.slice(3), getAttr(el, key) ?? ''] as [string, string]);
+        if (el.attrs.some(([key]) => !key.startsWith('ac:'))) throw new Unrepresentable();
+        return placeholder('structurizr', architecture[1], [['view', view], ...attrs.filter(([key, value]) => key !== 'alt' || value !== `Structurizr · ${view}`)]);
       }
     }
     const stem = filename.replace(/\.png$/i, '');
@@ -1233,7 +1276,9 @@ class Converter {
       const preview = getAttr(ref, 'ri:filename');
       if (preview && !/[{}|\n/\\]/.test(preview)) {
         this.files.add(drawioName); this.images.add(preview);
-        return `{{drawio:${drawioName}|format=image${preview !== `${drawioName}.png` ? `|preview=${preview}` : ''}}}`;
+        if (el.attrs.some(([key]) => !key.startsWith('ac:'))) throw new Unrepresentable();
+        const attrs = el.attrs.map(([key]) => [key.slice(3), getAttr(el, key) ?? ''] as [string, string]);
+        return placeholder('drawio', drawioName, [['format', 'image'], ...(preview !== `${drawioName}.png` ? [['preview', preview] as [string, string]] : []), ...attrs]);
       }
     }
 
@@ -1285,11 +1330,9 @@ class Converter {
       if (!k.startsWith('ac:')) throw new Unrepresentable();
       attrs.push([k.slice(3), getAttr(el, k) ?? '']);
     }
-    for (const [, v] of attrs) badPlaceholderPart(v);
     badPlaceholderPart(filename);
     this.images.add(filename);
-    const attrStr = attrs.map(([k, v]) => `|${k}=${v}`).join('');
-    return `{{img:${filename}${attrStr}}}`;
+    return placeholder('img', filename, attrs);
   }
 
   private acLinkToMd(el: XElement): string {
@@ -1338,6 +1381,10 @@ class Converter {
       }
       const filename = getAttr(ref, 'ri:filename') ?? '';
       this.files.add(filename);
+      if (!this.localFiles && !text && /\.dsl\.([0-9a-f]{2})+\.png$/.test(filename)) {
+        const image = readInlineSyntax(this.acImageToMd({ kind: 'el', name: 'ac:image', attrs: [], children: [ref], selfClosing: false }), 0);
+        if (image?.id === 'structurizr') { const parsed = parsePlaceholder(image.body); return placeholder('structurizr', parsed.name, [...parsed.attrs, ['display', 'link']]); }
+      }
       // attachments:'local' — md-ссылка на локальный файл вместо {{file:}}.
       if (this.localFiles) {
         const label = (text ?? filename).replace(/[[\]]/g, '\\$&');
