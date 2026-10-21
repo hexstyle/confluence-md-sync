@@ -4,6 +4,8 @@
 a local HTTP server and verify idempotency. draw.io tests cover native/image publishing,
 extensionless XML attachments, parameters and missing dependency validation.
 Search tests preserve structured space references and quoted template queries.
+`table-macros.test.ts` covers nested editable tables, SQL, source references and mentions.
+`CONFLUENCE_MACRO_FIXTURES` enables local ORP/vacations/staff snapshots without committing private data.
 
 Structurizr tests cover PNG rendering, editable import and attachment validation.
 Render tests also cover repository assets, linked images, rich labels and anchors.

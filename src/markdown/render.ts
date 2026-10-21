@@ -132,7 +132,7 @@ export function renderToStorage(
   const placeholders: Array<{ id: string; body: string; raw: string }> = [];
   let prefix = 'CFLATTACHTOKEN'; while (markdown.includes(prefix)) prefix += 'X';
   markdown = replaceInlineSyntax(markdown, ref => {
-    if (!['img', 'file', 'page', 'note'].includes(ref.id) && !(ref.id in NATIVE_PLACEHOLDERS)) return;
+    if (!['img', 'file', 'page', 'user', 'note'].includes(ref.id) && !(ref.id in NATIVE_PLACEHOLDERS)) return;
     const line = markdown.slice(markdown.lastIndexOf('\n', ref.from - 1) + 1, ref.from);
     const cell = line.trimStart().startsWith('|');
     placeholders.push(cell ? { ...ref, raw: unescapeTablePipes(ref.raw), body: unescapeTablePipes(ref.body) } : ref);
@@ -144,6 +144,12 @@ export function renderToStorage(
 
   const renderPlaceholder = (kind: string, body: string): string => {
     const { name, attrs } = parsePlaceholder(body);
+    if (kind === 'user') {
+      const map = Object.fromEntries(attrs), type = map.type || 'userkey';
+      if (!['userkey', 'username', 'account-id'].includes(type)) throw new Error('Unknown Confluence user identity type');
+      const body = map.text === undefined ? '' : `<ac:plain-text-link-body><![CDATA[${map.text.replace(/]]>/g, ']]]]><![CDATA[>')}]]></ac:plain-text-link-body>`;
+      return `<ac:link><ri:user ri:${type}="${escapeXmlAttr(name)}" />${body}</ac:link>`;
+    }
     if (kind === 'page') {
       return renderPageLink(name, attrs);
     }
@@ -179,7 +185,7 @@ export function renderToStorage(
       const body = renderToStorage(note.text.replace(/\r?\n/g, '\n\n'), urls, opts);
       return renderInlineNote(body.trim(), note.attrs);
     }
-    return ['img', 'file', 'page'].includes(ref.id) ? renderPlaceholder(ref.id, ref.body) : nativeToMarkers(ref.raw);
+    return ['img', 'file', 'page', 'user'].includes(ref.id) ? renderPlaceholder(ref.id, ref.body) : nativeToMarkers(ref.raw);
   });
 
   html = html.replace(/<p>((?:\s*<!-- MACRO:start:[^>]* -->\s*<!-- MACRO:end:[^>]* -->\s*)+)<\/p>/g, '$1');

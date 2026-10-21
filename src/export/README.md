@@ -15,6 +15,9 @@ Quoted image values preserve separators, braces and links inside GFM tables.
 `links.ts` collects and rewrites ordinary/native page links after batch destinations
 are allocated. Code and macro parameters stay intact; rich labels and anchors survive.
 `storageToMarkdown` and `exportPage` accept `linkResolver` for reverse mapping.
+Table macro containers preserve SQL and every parameter, including empty values.
+Styled tables normalize to editable GFM only after comparing normalized cells and
+the surrounding macro structure; native user references preserve mention identities.
 
 Cell/in-paragraph Notes export as `{{note:"Markdown body"|title=…|icon=false}}`.
 Standalone Notes retain block admonitions. Complex cell Note bodies preserve faithful

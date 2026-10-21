@@ -67,11 +67,7 @@ export const tableFilterPlugin: MacroPlugin = {
       // Параметры: name — название выборки; hide — скрывать ли содержимое.
       name: 'table-excerpt',
       render: (ctx) => {
-        const map = paramMap(ctx.params);
-        const params: Array<{ name: string; value: string }> = [];
-        if (map.hide === 'true') params.push({ name: 'hide', value: 'true' });
-        if (map.name) params.push({ name: 'name', value: map.name });
-        return structuredMacro('table-excerpt', ctx.macroId, { params, richBody: ctx.body });
+        return structuredMacro('table-excerpt', ctx.macroId, { params: ctx.params, richBody: ctx.body });
       },
     },
     {

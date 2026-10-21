@@ -46,6 +46,9 @@ export const NATIVE_DIRECTIVES: Record<string, string> = {
   properties: 'details',
   expand: 'expand',
   panel: 'panel',
+  'table-filter': 'table-filter',
+  'table-excerpt': 'table-excerpt',
+  'table-joiner': 'table-joiner',
 };
 
 /** Строчные плейсхолдеры: имя → имя макроса. */
@@ -60,6 +63,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
   anchor: 'anchor',
   'properties-report': 'detailssummary',
   'portfolio-for-jira-plan': 'portfolio-for-jira-plan',
+  'table-excerpt-include': 'table-excerpt-include',
 };
 
 /** Полный перечень макросов с нативной md-разметкой (для документации/UI). */
@@ -75,6 +79,8 @@ export function nativeMacroList(): { macro: string; syntax: string }[] {
     { macro: 'details', syntax: '::: properties [id=…] [hidden=true] … :::' },
     { macro: 'expand', syntax: '::: expand Заголовок … :::' },
     { macro: 'panel', syntax: '::: panel title=… … :::' },
+    ...['table-filter', 'table-excerpt', 'table-joiner'].map(macro => ({ macro, syntax: `::: ${macro} name="…" … :::` })),
+    { macro: 'table-excerpt-include', syntax: '{{table-excerpt-include:name=…|page=…|space=…}}' },
     { macro: 'toc', syntax: '{{toc}} | {{toc:maxLevel=3}}' },
     { macro: 'children', syntax: '{{children}} | {{children:depth=2}}' },
     { macro: 'jira', syntax: '{{jira:KEY-1}} | {{jira:jql=…|maximumIssues=20}}' },

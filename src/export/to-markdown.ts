@@ -421,6 +421,7 @@ class Converter {
     toc: 'toc', children: 'children', jira: 'jira', status: 'status',
     anchor: 'anchor', detailssummary: 'properties-report',
     'portfolio-for-jira-plan': 'portfolio-for-jira-plan',
+    'table-excerpt-include': 'table-excerpt-include',
   };
 
   private tryNativeMd(el: XElement, name: string): string | null {
@@ -432,6 +433,16 @@ class Converter {
     const oneline = (v: string | undefined) => v !== undefined && !/[\n|{}]/.test(v) && !v.includes('}}');
 
     let candidate: string | null = null;
+    if (['table-filter', 'table-excerpt', 'table-joiner'].includes(name) && richBody !== null) {
+      if (elements(el.children).filter(p => p.name === 'ac:parameter').some(p => elements(p.children).length)) return null;
+      if (params.some(p => !/^[\w-]+$/.test(p.name))) return null;
+      const bodyMd = this.bodyMd(richBody);
+      if (bodyMd === null) return null;
+      candidate = `::: ${name}${params.map(p => ` ${p.name}=${JSON.stringify(p.value)}`).join('')}\n${bodyMd}\n:::`;
+      if (this.verifyMacroMarker(el, candidate)) return candidate;
+      if (this.verifyTableMacro(el, candidate)) { this.stats.normalized++; return candidate; }
+      return null;
+    }
     if ((name === 'drawio' || name === 'inc-drawio') && richBody === null) {
       const filename = pmap.get('diagramName');
       if (!filename || !oneline(filename) || /[/\\]/.test(filename)) return null;
@@ -489,13 +500,16 @@ class Converter {
       const ph = Converter.NATIVE_PLACEHOLDER_NAME[name];
       const attrs: string[] = [];
       let head = '';
-      for (const p of params) {
+      const nativeParams = name === 'table-excerpt-include'
+        ? MACRO_EXTRACTORS[name]({ el, paramEls: elements(el.children).filter(p => p.name === 'ac:parameter'), richBody, plainBody })?.params : params;
+      if (!nativeParams) return null;
+      for (const p of nativeParams) {
         const value = /[|{}\n\r]/.test(p.value) || /^"/.test(p.value) ? JSON.stringify(p.value) : p.value;
         if (name === 'jira' && p.name === 'key' && head === '') { head = p.value; continue; }
         if (name === 'status' && p.name === 'title' && head === '') { head = p.value; continue; }
         if (name === 'anchor' && (p.name === 'name' || p.name === '') && head === '') { head = p.value; continue; }
         const attrName = name === 'jira' && p.name === 'jqlQuery' ? 'jql' : p.name;
-        if (!/^[A-Za-z-]+$/.test(attrName)) return null;
+        if (!/^[A-Za-z_][\w-]*$/.test(attrName)) return null;
         attrs.push(`${attrName}=${value}`);
       }
       const inner = [head, ...attrs].filter((s, i) => s !== '' || i > 0).join('|');
@@ -736,6 +750,30 @@ class Converter {
     } catch {
       return false;
     }
+  }
+
+  /** Accept editable GFM tables only when the surrounding macros/parameters and normalized cells match. */
+  private verifyTableMacro(el: XElement, markdown: string): boolean {
+    const saved = this.readable, stats = { ...this.stats };
+    try {
+      this.readable = true;
+      const render = (md: string) => processMacros(renderToStorage(md, { images: new Map(), files: new Map() },
+        { imageStyle: 'attachment', fileStyle: 'attachment', linkify: false }), this.registry).toString();
+      const normalize = (nodes: XNode[]): XNode[] => nodes.flatMap(node => {
+        if (node.kind !== 'el') return [node];
+        if (node.name === 'table') {
+          // Nested block macros require their own faithful conversion; never flatten their semantics.
+          const hasMacro = (ns: XNode[]): boolean => ns.some(n => n.kind === 'el' && (n.name === 'ac:structured-macro' || hasMacro(n.children)));
+          if (hasMacro(node.children)) throw new Unrepresentable();
+          return parseStorage(render(this.readableTable(node)));
+        }
+        return [{ ...node, children: normalize(node.children) }];
+      });
+      return compareStorage(serializeStorage(normalize([el])), serializeStorage(normalize(parseStorage(render(markdown))))).equal;
+    } catch (error) {
+      if (!(error instanceof Unrepresentable)) throw error;
+      return false;
+    } finally { this.readable = saved; Object.assign(this.stats, stats); }
   }
 
   private containsMacroNamed(nodes: XNode[], name: string): boolean {
@@ -1363,6 +1401,12 @@ class Converter {
       throw new Unrepresentable();
     }
     const textAttr = text !== undefined ? `|text=${text}` : '';
+
+    if (ref.name === 'ri:user') {
+      const identity = ref.attrs.find(([key]) => ['ri:userkey', 'ri:username', 'ri:account-id'].includes(key));
+      if (!identity || ref.attrs.length !== 1) throw new Unrepresentable();
+      return placeholder('user', decodeEntities(identity[1]), [['type', identity[0].slice(3)], ...(text === undefined ? [] : [['text', text] as [string, string]])]);
+    }
 
     if (ref.name === 'ri:page') {
       if (!ref.attrs.every(([k]) => ['ri:content-title', 'ri:space-key', 'ri:version-at-save'].includes(k))) {
