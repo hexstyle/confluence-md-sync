@@ -32,6 +32,7 @@
 
 import { escapeParamValue } from '../macros/builder.js';
 import { replaceInlineSyntax } from './inline-syntax.js';
+import { parsePlaceholder } from './placeholder.js';
 
 /** Панели: тег admonition → имя макроса. */
 export const NATIVE_ADMONITIONS: Record<string, string> = {
@@ -53,6 +54,7 @@ export const NATIVE_DIRECTIVES: Record<string, string> = {
 
 /** Строчные плейсхолдеры: имя → имя макроса. */
 export const NATIVE_PLACEHOLDERS: Record<string, string> = {
+  user: 'user',
   search: 'search',
   drawio: 'drawio',
   structurizr: 'structurizr',
@@ -69,6 +71,7 @@ export const NATIVE_PLACEHOLDERS: Record<string, string> = {
 /** Полный перечень макросов с нативной md-разметкой (для документации/UI). */
 export function nativeMacroList(): { macro: string; syntax: string }[] {
   return [
+    { macro: 'user', syntax: '{{user:identity|type=username|text=…}}' },
     { macro: 'search', syntax: '{{search:query=…|spacekey=…|type=page|maxLimit=10}}' },
     { macro: 'structurizr', syntax: '{{structurizr:workspace.dsl|view=containers}}' },
     { macro: 'drawio', syntax: '{{drawio:diagram.drawio|format=macro}} | {{drawio:diagram.drawio|format=image}}' },
@@ -136,6 +139,10 @@ function splitAttrs(raw: string): { head: string; attrs: Param[] } {
 /** Параметры плейсхолдера → параметры макроса Confluence. */
 function placeholderParams(kind: string, raw: string | undefined): Param[] {
   if (raw === undefined || raw.trim() === '') return [];
+  if (kind === 'user') {
+    const { name, attrs } = parsePlaceholder(raw);
+    return [{ name: 'identity', value: name }, ...attrs.map(([name, value]) => ({ name, value }))];
+  }
   const { head, attrs } = splitAttrs(raw);
   if (kind === 'structurizr') return [{ name: 'name', value: head }, ...attrs];
   if (kind === 'drawio') return [{ name: 'diagramName', value: head }, ...attrs];

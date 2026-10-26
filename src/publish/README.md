@@ -8,3 +8,7 @@ runs multi-page plans. Tests use a local HTTP server rather than live Confluence
 
 `jira.ts` resolves the target Confluence default Jira connection at publication;
 ambiguous or unavailable configuration produces an explicit error.
+
+`user.ts` resolves each authored login once per request to the target user key/account
+ID before hashing. Confluence's own normalization then causes no extra publication
+after import. Explicit keys/account IDs require no lookup; inaccessible logins fail explicitly.

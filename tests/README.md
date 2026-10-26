@@ -23,3 +23,8 @@ importing and republishing a Note adds no page version.
 `jira.test.ts` checks portable references and target-side default server resolution.
 `properties-live.test.ts` runs three actual Confluence cycles on a disposable page;
 set CONFLUENCE_TEST_BASE_URL/TOKEN/PARENT_ID/SPACE_KEY explicitly. Cleanup deletes the test page.
+
+`user.test.ts` checks native mentions, builders, all identity types, XML/CDATA escaping,
+table cells, faithful fallback and target-side login resolution. Publication tests check
+repeated imports without version churn. `user-live.test.ts` uses the same explicit live
+test settings and mentions the publishing service itself; its temporary page is deleted.

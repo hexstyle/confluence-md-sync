@@ -25,3 +25,6 @@ storage fences in both modes, rather than silently losing structure or highlight
 
 Page Properties reuse existing headings; repeated import/publish does not add data rows.
 Literal quote entities and plain blockquotes use equivalent Markdown; faithful mode retains styles.
+
+User mentions always export an explicit identity type and quote labels as needed.
+Unknown user/link attributes and rich labels retain faithful storage without data loss.

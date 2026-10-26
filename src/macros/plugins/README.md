@@ -54,3 +54,7 @@ Inline Note IDs use normalized XHTML, preventing version churn after import.
 
 Page Properties repair only leading duplicate synthetic headings. Their IDs use the
 normalized rendered body, so importing the repaired table does not churn versions.
+
+`user.ts` shares the native user-link renderer with inline placeholders and the
+`macros.user` builder. The default identity type is username; userkey/account-id
+remain explicit. Mentions are links (`ac:link` + `ri:user`), not structured macros.

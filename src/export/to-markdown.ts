@@ -1403,7 +1403,6 @@ class Converter {
       const body = kids[1];
       if (body.name !== 'ac:plain-text-link-body') throw new Unrepresentable();
       text = textContent(body.children);
-      badPlaceholderPart(text);
     } else if (kids.length > 2) {
       throw new Unrepresentable();
     }
@@ -1411,9 +1410,12 @@ class Converter {
 
     if (ref.name === 'ri:user') {
       const identity = ref.attrs.find(([key]) => ['ri:userkey', 'ri:username', 'ri:account-id'].includes(key));
-      if (!identity || ref.attrs.length !== 1) throw new Unrepresentable();
+      if (!identity || ref.attrs.length !== 1 || ref.children.length || kids[1]?.attrs.length) throw new Unrepresentable();
+      if (kids[1]?.children.some(node => node.kind === 'el') || el.children.some(node => node.kind === 'text' && node.raw.trim())) throw new Unrepresentable();
       return placeholder('user', decodeEntities(identity[1]), [['type', identity[0].slice(3)], ...(text === undefined ? [] : [['text', text] as [string, string]])]);
     }
+
+    if (text !== undefined) badPlaceholderPart(text);
 
     if (ref.name === 'ri:page') {
       if (!ref.attrs.every(([k]) => ['ri:content-title', 'ri:space-key', 'ri:version-at-save'].includes(k))) {

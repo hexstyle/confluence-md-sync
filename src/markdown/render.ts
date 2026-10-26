@@ -5,6 +5,7 @@ import { attachmentImage } from './image.js';
 import { replaceInlineSyntax, unescapeTablePipes } from './inline-syntax.js';
 import { parseInlineNote } from './note.js';
 import { renderInlineNote } from '../macros/plugins/note.js';
+import { renderUserLink } from '../macros/plugins/user.js';
 import { liftInlineNotes } from './note-layout.js';
 export { PLACEHOLDER_RE, parsePlaceholder, type PlaceholderRef } from './placeholder.js';
 
@@ -145,10 +146,7 @@ export function renderToStorage(
   const renderPlaceholder = (kind: string, body: string): string => {
     const { name, attrs } = parsePlaceholder(body);
     if (kind === 'user') {
-      const map = Object.fromEntries(attrs), type = map.type || 'userkey';
-      if (!['userkey', 'username', 'account-id'].includes(type)) throw new Error('Unknown Confluence user identity type');
-      const body = map.text === undefined ? '' : `<ac:plain-text-link-body><![CDATA[${map.text.replace(/]]>/g, ']]]]><![CDATA[>')}]]></ac:plain-text-link-body>`;
-      return `<ac:link><ri:user ri:${type}="${escapeXmlAttr(name)}" />${body}</ac:link>`;
+      return renderUserLink(name, Object.fromEntries(attrs));
     }
     if (kind === 'page') {
       return renderPageLink(name, attrs);

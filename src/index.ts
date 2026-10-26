@@ -84,6 +84,7 @@ export {
 
 // Publish
 export { resolveJiraMacros } from './publish/jira.js';
+export { resolveUserMentions } from './publish/user.js';
 export {
   publishPage,
   computeContentHash,

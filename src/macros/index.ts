@@ -22,6 +22,7 @@ export { portfolioForJiraPlanPlugin } from './plugins/portfolio-for-jira-plan.js
 export { structurizrPlugin } from './plugins/structurizr.js';
 export { drawioPlugin } from './plugins/drawio.js';
 export { searchPlugin } from './plugins/search.js';
+export { userPlugin, type UserOptions } from './plugins/user.js';
 
 import { MacroRegistry } from './registry.js';
 import { coreMacrosPlugin } from './plugins/core.js';
@@ -51,6 +52,7 @@ import { portfolioForJiraPlan } from './plugins/portfolio-for-jira-plan.js';
 import { structurizr, structurizrPlugin } from './plugins/structurizr.js';
 import { drawio, drawioPlugin } from './plugins/drawio.js';
 import { search, searchPlugin } from './plugins/search.js';
+import { user, userPlugin } from './plugins/user.js';
 
 /** Creates a registry pre-loaded with all built-in plugins. */
 export function createDefaultRegistry(): MacroRegistry {
@@ -61,7 +63,8 @@ export function createDefaultRegistry(): MacroRegistry {
     .use(portfolioForJiraPlanPlugin)
     .use(drawioPlugin)
     .use(structurizrPlugin)
-    .use(searchPlugin);
+    .use(searchPlugin)
+    .use(userPlugin);
 }
 
 /**
@@ -106,4 +109,5 @@ export const macros = {
   drawio,
   structurizr,
   search,
+  user,
 };

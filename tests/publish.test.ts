@@ -37,6 +37,7 @@ beforeAll(async () => {
       };
 
       if (url === '/rest/jiraanywhere/1.0/servers' && method === 'GET') return send(200, [{ id: 'target-jira', name: 'Target Jira', selected: true }]);
+      if (url.startsWith('/rest/api/user?username=') && method === 'GET') return send(200, { userKey: 'resolved-jdoe' });
       // content property: GET (read) и PUT (update) по /property/{key}
       if (/^\/rest\/api\/content\/[^/]+\/property\/[^/?]+$/.test(url)) {
         if (method === 'GET') {
@@ -221,6 +222,17 @@ describe('inline Note publication', () => {
 });
 
 describe('portable imported pages', () => {
+  it('publishes user mentions and imports them repeatedly without another page version', async () => {
+    const markdown = 'Owners: {{user:jdoe}} {{user:key|type=userkey}} {{user:acc|type=account-id|text=Иван}}\n\n| Owner |\n| --- |\n| {{user:jdoe\\|type=username}} |';
+    const first = await pub({ markdown });
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const imported = storageToMarkdown(state.page.storage).markdown;
+      expect(imported).toContain('{{user:resolved-jdoe'); expect(imported).toContain('type=userkey');
+      const result = await pub({ markdown: imported });
+      expect(result.updated).toBe(false); expect(result.version).toBe(first.version);
+    }
+    expect(state.puts).toBe(1);
+  });
   it('replaces a copied managed notice from the actual page binding', async () => {
     await pub({ managedNotice: { linkUrl: 'https://studio.test/?p=1&f=source.md' } });
     const markdown = storageToMarkdown(state.page.storage).markdown;
