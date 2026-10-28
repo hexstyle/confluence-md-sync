@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -9,6 +10,7 @@ import { renderMermaidCanvasSvg } from '../mermaid.js';
 import type { MermaidSource } from '../markdown/mermaid.js';
 import { MERMAID_PROPERTY_KEY } from '../markdown/mermaid.js';
 import type { ConfluenceClient } from '../client/client.js';
+import { SRC_SHA_SIDECAR_SUFFIX } from '../attachments/attachment.js';
 
 export async function readMermaidSources(client: ConfluenceClient, pageId: string, storage: string): Promise<Record<string, MermaidSource>> {
   if (!/ri:filename="mermaid-[a-f0-9]{24}\.png"/.test(storage)) return {};
@@ -91,6 +93,8 @@ export async function convertMermaid(sources: Record<string, MermaidSource>, out
           await (await page.$('svg'))!.screenshot({ path: output, type: 'png' });
         } finally { await page.close(); }
       }
+      // Chromium PNG bytes can vary; unchanged Mermaid must reuse its attachment.
+      writeFileSync(output + SRC_SHA_SIDECAR_SUFFIX, createHash('sha256').update(source).digest('hex'));
       outputs.push(output);
     }
   } finally { await browser?.close(); }

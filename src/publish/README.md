@@ -17,3 +17,5 @@ after import. Explicit keys/account IDs require no lookup; inaccessible logins f
 Flowcharts and sequence diagrams use the same RMK geometry as the visual editor.
 Other kinds use local Mermaid/Chromium with external requests blocked. Rendering needs
 optional peers `@resvg/resvg-js`, `mermaid` and `puppeteer`; normal pages do not load them.
+Attachment dedup uses the source SHA sidecar, so nondeterministic Chromium PNG bytes
+never add another attachment version for unchanged Mermaid.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { flowchart, type DrawingData } from '@react-markdown-kit/mermaid';
 import { renderExportedMarkdown, storageToMarkdown } from '../src/index.js';
 import { mermaidSources, convertMermaid, saveMermaidSources, readMermaidSources } from '../src/publish/mermaid.js';
@@ -55,6 +56,7 @@ describe('inline Mermaid diagrams', () => {
     try {
       const files = await convertMermaid(mermaidSources(mermaidFence(source)), dir);
       expect(readFileSync(files[0]).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+      expect(readFileSync(files[0] + '.src-sha256', 'utf8')).toBe(createHash('sha256').update(source).digest('hex'));
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   it('compresses large source maps within the Confluence property limit and verifies recovered names', async () => {
