@@ -7,6 +7,7 @@ import { parseInlineNote } from './note.js';
 import { renderInlineNote } from '../macros/plugins/note.js';
 import { renderUserLink } from '../macros/plugins/user.js';
 import { liftInlineNotes } from './note-layout.js';
+import { renderMermaidImage } from '../macros/plugins/mermaid.js';
 export { PLACEHOLDER_RE, parsePlaceholder, type PlaceholderRef } from './placeholder.js';
 
 // xhtmlOut: true — Confluence storage format = XHTML, void-элементы
@@ -24,6 +25,15 @@ const md = new MarkdownIt(mdOptions);
 // для страниц из exportPage — иначе round-trip превращал бы нессылочные
 // упоминания URL в <a>.
 const mdNoLinkify = new MarkdownIt({ ...mdOptions, linkify: false });
+for (const renderer of [md, mdNoLinkify]) {
+  const fence = renderer.renderer.rules.fence!;
+  renderer.renderer.rules.fence = (tokens, index, options, env, self) => {
+    const token = tokens[index];
+    return /^mermaid(?:\s|$)/i.test(token.info.trim())
+      ? renderMermaidImage(token.content.replace(/\n$/, ''), token.info.trim()) + '\n'
+      : fence(tokens, index, options, env, self);
+  };
+}
 
 /**
  * Плейсхолдеры: `{{img:name}}`, `{{file:name}}`, `{{page:Title}}`.

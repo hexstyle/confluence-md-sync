@@ -85,6 +85,8 @@ export {
 // Publish
 export { resolveJiraMacros } from './publish/jira.js';
 export { resolveUserMentions } from './publish/user.js';
+export { mermaidSources, readMermaidSources } from './publish/mermaid.js';
+export { MERMAID_PROPERTY_KEY, type MermaidSource } from './markdown/mermaid.js';
 export {
   publishPage,
   computeContentHash,

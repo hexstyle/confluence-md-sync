@@ -28,3 +28,7 @@ set CONFLUENCE_TEST_BASE_URL/TOKEN/PARENT_ID/SPACE_KEY explicitly. Cleanup delet
 table cells, faithful fallback and target-side login resolution. Publication tests check
 repeated imports without version churn. `user-live.test.ts` uses the same explicit live
 test settings and mentions the publishing service itself; its temporary page is deleted.
+
+`mermaid.test.ts` covers fenced source/layout, literal examples, native image formats,
+repeated diagrams and PNG conversion. `mermaid-live.test.ts` uses the same explicit
+Confluence test settings for three diagram kinds, repeated imports and attachment dedup.

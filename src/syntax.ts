@@ -3,3 +3,4 @@ export { PLACEHOLDER_RE, parsePlaceholder, placeholder, quotePlaceholder, type P
 export { readInlineSyntax, replaceInlineSyntax, unescapeTablePipes, type InlineSyntax } from './markdown/inline-syntax.js';
 
 export { parseInlineNote, inlineNote } from './markdown/note.js';
+export { mermaidFence, mermaidImageAttrs, type MermaidSource } from './markdown/mermaid.js';

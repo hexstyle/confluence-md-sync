@@ -10,6 +10,8 @@ import { defaultMacroRegistry } from '../macros/index.js';
 import { renderToStorage } from '../markdown/render.js';
 import { compareStorage, type StorageDiff } from './canonical.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
+import { readMermaidSources } from '../publish/mermaid.js';
+import type { MermaidSource } from '../markdown/mermaid.js';
 
 export interface RoundTripResult extends StorageToMarkdownResult {
   /** storage, восстановленный из markdown публикационным конвейером. */
@@ -34,7 +36,7 @@ export function renderExportedMarkdown(markdown: string, registry?: MacroRegistr
 /** Полный офлайн round-trip для готового storage-фрагмента. */
 export function roundTripStorage(
   storage: string,
-  opts: { registry?: MacroRegistry } = {},
+  opts: { registry?: MacroRegistry; mermaidSources?: Record<string, MermaidSource> } = {},
 ): RoundTripResult {
   const converted = storageToMarkdown(storage, opts);
   const regenerated = renderExportedMarkdown(converted.markdown, opts.registry);
@@ -50,6 +52,6 @@ export async function roundTripPage(
 ): Promise<RoundTripResult & { title: string; version: number }> {
   const client = new ConfluenceClient(cfg);
   const page = await client.getPageStorage(pageId);
-  const result = roundTripStorage(page.storage, opts);
+  const result = roundTripStorage(page.storage, { ...opts, mermaidSources: await readMermaidSources(client, pageId, page.storage) });
   return { ...result, title: page.title, version: page.version };
 }

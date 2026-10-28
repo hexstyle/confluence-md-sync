@@ -16,6 +16,7 @@ import {
 import { validateMarkdown } from '../markdown/validate.js';
 import { resolveJiraMacros } from './jira.js';
 import { resolveUserMentions } from './user.js';
+import { convertMermaid, mermaidSources, saveMermaidSources } from './mermaid.js';
 import { applyManagedNotice, type ManagedNoticeOptions } from './notice.js';
 import { processMacros } from '../macros/registry.js';
 import type { MacroRegistry } from '../macros/registry.js';
@@ -197,6 +198,7 @@ export async function publishPage(
   const tables = opts.tables ?? [];
   const registry = opts.registry ?? defaultMacroRegistry;
   const hashKey = opts.hashPropertyKey ?? DEFAULT_HASH_PROPERTY_KEY;
+  const diagrams = mermaidSources(markdown);
 
   // Fail fast: баннер без ссылки бессмыслен — падаем до любого сетевого I/O.
   if (opts.managedNotice && !opts.managedNotice.linkUrl) {
@@ -284,6 +286,10 @@ export async function publishPage(
   // равно не загружаются, URL подставляются фиктивные).
   if (bpmnConversions.length > 0 && !opts.dryRun) {
     await convertBpmn(bpmnConversions);
+  }
+  if (Object.keys(diagrams).length && !opts.dryRun) {
+    const outDir = mkdtempSync(join(tmpdir(), 'confluence-md-sync-mermaid-'));
+    images = [...images, ...await convertMermaid(diagrams, outDir)];
   }
 
   const client = new ConfluenceClient(cfg);
@@ -396,6 +402,7 @@ export async function publishPage(
   else reason = null;
 
   if (reason === null) {
+    await saveMermaidSources(client, pageId, diagrams);
     console.log(
       `[publish] ${pageId} "${title}" → UNCHANGED (hash ${newHash.slice(0, 12)}, v${existing.version})`,
     );
@@ -411,6 +418,7 @@ export async function publishPage(
     storage,
     versionMessage: opts.versionMessage,
   });
+  await saveMermaidSources(client, pageId, diagrams);
 
   // 5. Запись/обновление content property: hash + версия, которая ПОЛУЧИЛАСЬ
   //    после нашей записи. Делаем ПОСЛЕ updatePage, чтобы при сбое publish

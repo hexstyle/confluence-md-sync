@@ -11,6 +11,7 @@ import type { MacroRegistry } from '../macros/registry.js';
 import { storageToMarkdown, type StorageToMarkdownResult } from './to-markdown.js';
 import { drawioReferences, drawioAttachmentNames } from '../markdown/drawio.js';
 import type { StorageLinkResolver } from './links.js';
+import { readMermaidSources } from '../publish/mermaid.js';
 
 export interface ExportPageOptions {
   linkResolver?: StorageLinkResolver;
@@ -58,6 +59,7 @@ export async function exportPage(
   const client = new ConfluenceClient(cfg);
   const page = await client.getPageStorage(pageId);
   const converted = storageToMarkdown(page.storage, {
+    mermaidSources: await readMermaidSources(client, pageId, page.storage),
     drawioNames: drawioAttachmentNames(await client.listAttachments(pageId)),
     registry: opts.registry,
     mode: opts.mode,

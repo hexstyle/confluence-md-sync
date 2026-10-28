@@ -28,3 +28,7 @@ Literal quote entities and plain blockquotes use equivalent Markdown; faithful m
 
 User mentions always export an explicit identity type and quote labels as needed.
 Unknown user/link attributes and rich labels retain faithful storage without data loss.
+
+Mermaid images recover their inline source from `mermaidSources`. `exportPage` and
+`roundTripPage` read this page property automatically. Existing plain-body Mermaid
+macros import as fenced source; unknown macro parameters retain faithful storage.

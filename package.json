@@ -1,6 +1,6 @@
 {
   "name": "confluence-md-sync",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Publish Markdown to Confluence (Data Center & Cloud): idempotent page sync, attachment dedup, tables and a pluggable macro system",
   "keywords": [
     "confluence",
@@ -29,6 +29,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./mermaid": {
+      "types": "./dist/mermaid.d.ts",
+      "import": "./dist/mermaid.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
@@ -62,20 +66,36 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@react-markdown-kit/mermaid": "0.4.0",
+    "hast-util-to-html": "9.0.5",
     "markdown-it": "^14.1.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.14.0",
     "bpmn-to-image": "^0.7.0",
+    "mermaid": "12.2.0",
     "puppeteer": "^24.43.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
+    "mermaid": ">=11",
+    "puppeteer": ">=24",
+    "@resvg/resvg-js": ">=2",
     "bpmn-to-image": ">=0.7.0"
   },
   "peerDependenciesMeta": {
+    "mermaid": {
+      "optional": true
+    },
+    "puppeteer": {
+      "optional": true
+    },
+    "@resvg/resvg-js": {
+      "optional": true
+    },
     "bpmn-to-image": {
       "optional": true
     }

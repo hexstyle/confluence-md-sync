@@ -58,3 +58,7 @@ normalized rendered body, so importing the repaired table does not churn version
 `user.ts` shares the native user-link renderer with inline placeholders and the
 `macros.user` builder. The default identity type is username; userkey/account-id
 remain explicit. Mentions are links (`ac:link` + `ri:user`), not structured macros.
+
+`mermaid.ts` renders a Mermaid fence as a native image with a content-addressed PNG.
+The source, including RMK's inline layout comment, stays in Markdown. The publisher
+keeps a reverse map in the page property `confluence-md-sync-mermaid` for lossless import.

@@ -31,6 +31,7 @@ import { readInlineSyntax } from '../markdown/inline-syntax.js';
 import { portableJiraStorage } from '../markdown/jira.js';
 import { inlineNote } from '../markdown/note.js';
 import { isPropertiesHeading, normalizePropertiesTable } from '../markdown/properties.js';
+import { mermaidFence, type MermaidSource } from '../markdown/mermaid.js';
 import { compareStorage } from './canonical.js';
 import { NOTICE_MACRO_ID } from '../publish/notice.js';
 import { rewriteStorageLinks, type StorageLinkResolver } from './links.js';
@@ -47,6 +48,7 @@ import {
 } from './xhtml.js';
 
 export interface StorageToMarkdownOptions {
+  mermaidSources?: Record<string, MermaidSource>;
   /** Map known page references to repository URLs after allocating all batch paths. */
   linkResolver?: StorageLinkResolver;
   /** Known XML attachments; needed for image-mode diagrams without a .drawio suffix. */
@@ -118,10 +120,11 @@ export function storageToMarkdown(
     localPrefix: opts.localPrefix ?? 'attachments/',
     drawioNames: opts.drawioNames ?? [],
   });
+  conv.mermaidSources = opts.mermaidSources ?? {};
   const markdown = conv.blocksToMd(parseStorage(rewritten));
   if (rewritten !== storage) conv.stats.normalized++;
   const attachmentRefs = new Set<string>([...conv.images, ...conv.files]);
-  for (const m of storage.matchAll(/ri:filename="([^"]*)"/g)) attachmentRefs.add(m[1]);
+  for (const m of storage.matchAll(/ri:filename="([^"]*)"/g)) if (!conv.mermaidSources[m[1]]) attachmentRefs.add(m[1]);
   return {
     markdown,
     images: [...conv.images],
@@ -171,6 +174,7 @@ interface ConverterOpts {
 }
 
 class Converter {
+  mermaidSources: Record<string, MermaidSource> = {};
   private drawioNames: Set<string>;
   images = new Set<string>();
   files = new Set<string>();
@@ -225,6 +229,11 @@ class Converter {
         return '#'.repeat(Number(h[1])) + ' ' + guardLineStart(inline.trim());
       }
       if (el.name === 'p' && el.attrs.length === 0) {
+        const image = elements(el.children);
+        if (image.length === 1 && ['ac:image', 'ac:link', 'a'].includes(image[0].name) && el.children.every(n => n.kind === 'el' || n.kind === 'text' && !n.raw.trim())) {
+          const diagram = this.mermaidImageMd(image[0]);
+          if (diagram !== null) return diagram;
+        }
         // Редактор оборачивает блочные макросы в <p> — разворачиваем:
         // маркер и так блочный, канонизация считает формы эквивалентными.
         const meaningful = el.children.filter(
@@ -281,7 +290,13 @@ class Converter {
         }
       }
       if (el.name === 'ac:structured-macro') return this.macroToMd(el);
+      if (el.name === 'a') {
+        const diagram = this.mermaidImageMd(el);
+        if (diagram !== null) return diagram;
+      }
       if (el.name === 'ac:image' || el.name === 'ac:link') {
+        const diagram = this.mermaidImageMd(el);
+        if (diagram !== null) return diagram;
         // Блочная картинка/ссылка — оформляем как отдельный абзац.
         return this.paragraphMd([el]);
       }
@@ -564,6 +579,13 @@ class Converter {
     // Баннер managedNotice — артефакт публикации, в md-источник не попадает никогда.
     if (getAttr(el, 'ac:macro-id') === NOTICE_MACRO_ID) return '';
     const name = getAttr(el, 'ac:name') ?? '';
+    if (['mermaid', 'mermaid-cloud', 'mermaid-diagram'].includes(name)) {
+      const parts = this.macroParts(el);
+      if (parts?.plainBody !== null && parts?.plainBody !== undefined && parts.params.length === 0) {
+        this.stats.normalized++;
+        return mermaidFence(textContent(parts.plainBody.children));
+      }
+    }
     const nativeMd = this.tryNativeMd(el, name);
     if (nativeMd !== null) {
       this.stats.native++;
@@ -576,6 +598,25 @@ class Converter {
     }
     if (this.readable) return this.readableMacro(el);
     return this.fence(serializeStorage([el]));
+  }
+
+  private mermaidImageMd(el: XElement): string | null {
+    let image = el, link: string | undefined;
+    if (el.name === 'a') {
+      const children = elements(el.children);
+      if (children.length !== 1 || children[0].name !== 'ac:image' || el.attrs.some(([key]) => key !== 'href')) return null;
+      link = getAttr(el, 'href'); image = children[0];
+    }
+    const refs = elements(image.children), ref = refs[0];
+    if (refs.length !== 1 || ref?.name !== 'ri:attachment') return null;
+    if (ref.children.length || image.name === 'ac:link' && image.attrs.length) return null;
+    const name = getAttr(ref, 'ri:filename') ?? '', diagram = this.mermaidSources[name];
+    if (!diagram) return null;
+    this.stats.normalized++;
+    const attrs = image.name === 'ac:link' ? [['display', 'link']] : image.attrs.map(([key, value]) => [key.replace(/^ac:/, ''), decodeEntities(value)]).filter(([key, value]) => !(key === 'alt' && value === 'Mermaid') && !(key === 'style' && value === 'max-width:100%;height:auto'));
+    if (link) attrs.push(['link', link]);
+    const info = 'mermaid' + attrs.map(([key, value]) => ` ${key}=${JSON.stringify(value)}`).join('');
+    return mermaidFence(diagram.source, info);
   }
 
   /**

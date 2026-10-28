@@ -26,3 +26,6 @@ Notes outside surrounding paragraphs, including table cells and inline formattin
 `properties.ts` removes only leading duplicate synthetic Page Properties headings.
 
 `jira.ts` removes environment-specific Jira server parameters from imported Markdown.
+
+`mermaid.ts` serializes fenced Mermaid source and image formatting. `render.ts` renders
+these fences as native Confluence images; ordinary code examples stay literal.

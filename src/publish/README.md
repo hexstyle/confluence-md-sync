@@ -12,3 +12,8 @@ ambiguous or unavailable configuration produces an explicit error.
 `user.ts` resolves each authored login once per request to the target user key/account
 ID before hashing. Confluence's own normalization then causes no extra publication
 after import. Explicit keys/account IDs require no lookup; inaccessible logins fail explicitly.
+
+`mermaid.ts` discovers fenced diagrams, renders PNG and stores the source/image map.
+Flowcharts and sequence diagrams use the same RMK geometry as the visual editor.
+Other kinds use local Mermaid/Chromium with external requests blocked. Rendering needs
+optional peers `@resvg/resvg-js`, `mermaid` and `puppeteer`; normal pages do not load them.
